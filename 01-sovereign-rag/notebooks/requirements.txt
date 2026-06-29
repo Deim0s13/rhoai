@@ -1,0 +1,41 @@
+# notebooks/requirements.txt
+# Python dependencies for 01-sovereign-rag notebooks.
+#
+# These are installed inline in each notebook via pip install.
+# This file exists as a reference — for dependency auditing,
+# local development, or if you prefer to pre-build a custom
+# workbench image with dependencies pre-installed.
+#
+# Install locally:
+#   pip install -r requirements.txt
+#
+# Python version: 3.11 (matches RHOAI standard data science workbench image)
+
+# PDF parsing
+# PyMuPDF is preferred over pdfplumber for regulatory PDFs —
+# more reliable on documents that mix dense text, tables, and headers.
+PyMuPDF==1.24.0
+
+# Vector store client
+pymilvus==2.4.3
+
+# Object store client
+minio==7.2.7
+
+# Embedding model
+# all-MiniLM-L6-v2 runs on CPU — no GPU dependency in the workbench.
+sentence-transformers==3.0.1
+
+# Text chunking
+# RecursiveCharacterTextSplitter respects paragraph and sentence boundaries
+# before falling back to character splits — better semantic coherence than
+# naive fixed-character chunking.
+langchain-text-splitters==0.2.4
+
+# LLM client
+# openai client pointed at the vLLM InferenceService endpoint.
+# vLLM exposes an OpenAI-compatible API — no actual OpenAI account needed.
+openai==1.35.0
+
+# Progress bars
+tqdm==4.66.4
