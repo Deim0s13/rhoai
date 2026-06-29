@@ -1,0 +1,71 @@
+# configure-minio.yaml
+# Post-deploy configuration tasks for MinIO.
+# Runs after GitOps has deployed the tenant and it is healthy.
+#
+# Prerequisites:
+#   - MinIO tenant running and reachable
+#   - AWS CLI configured with permissions to read SSM parameters
+#   - mc (MinIO client) installed on the Ansible control node
+#   - Granite model weights accessible for seeding (see roles/minio-setup)
+#
+# Run with:
+#   AWS_REGION=us-east-1 CLUSTER_NAME=my-cluster \
+#     ansible-playbook ansible/configure-minio.yaml
+
+- name: Configure MinIO post-deployment
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Retrieve MinIO credentials from SSM
+      community.aws.aws_ssm_parameter_store:
+        name: "{{ ssm_prefix }}/minio/access-key"
+        region: "{{ aws_region }}"
+      register: minio_access_key
+
+    - name: Retrieve MinIO secret key from SSM
+      community.aws.aws_ssm_parameter_store:
+        name: "{{ ssm_prefix }}/minio/secret-key"
+        region: "{{ aws_region }}"
+      register: minio_secret_key
+
+    - name: Retrieve MinIO endpoint from SSM
+      community.aws.aws_ssm_parameter_store:
+        name: "{{ ssm_prefix }}/minio/endpoint"
+        region: "{{ aws_region }}"
+      register: minio_endpoint
+
+    - name: Configure mc alias for this MinIO instance
+      ansible.builtin.command: >
+        mc alias set sovereign-rag
+        {{ minio_endpoint.value }}
+        {{ minio_access_key.value }}
+        {{ minio_secret_key.value }}
+      no_log: true    # suppress credentials from Ansible output
+
+    - name: Verify MinIO connectivity
+      ansible.builtin.command: mc admin info sovereign-rag
+      register: minio_info
+      failed_when: minio_info.rc != 0
+
+    - name: Apply bucket policies
+      ansible.builtin.include_role:
+        name: minio-setup
+        tasks_from: bucket-policies
+
+    - name: Seed Granite model weights
+      ansible.builtin.include_role:
+        name: minio-setup
+        tasks_from: seed-models
+
+    - name: Seed regulatory documents
+      ansible.builtin.include_role:
+        name: minio-setup
+        tasks_from: seed-documents
+
+    - name: Update MinIO endpoint SSM parameter
+      community.aws.aws_ssm_parameter_store:
+        name: "{{ ssm_prefix }}/minio/endpoint"
+        value: "{{ minio_endpoint.value }}"
+        region: "{{ aws_region }}"
+        string_type: String

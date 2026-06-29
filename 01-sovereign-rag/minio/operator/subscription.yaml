@@ -1,0 +1,25 @@
+# subscription.yaml
+# OLM Subscription for the MinIO Operator.
+# Installs from the community-operators catalog — available on ROSA by default.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: minio-operator
+  namespace: minio-operator
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+spec:
+  channel: stable
+  name: minio-operator
+  source: community-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: minio-operator-group
+  namespace: minio-operator
+spec:
+  targetNamespaces:
+    - minio-operator

@@ -1,0 +1,29 @@
+# minio-tenant-app.yaml
+# Argo CD Application that deploys the MinIO Tenant.
+# Sync wave 2 — depends on the operator being healthy.
+# Argo CD will not proceed until wave 1 resources pass health checks.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minio-tenant
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_ORG/rhoai        # update to your repo
+    targetRevision: main
+    path: 01-sovereign-rag/minio/tenant
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sovereign-rag
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

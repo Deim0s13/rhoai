@@ -1,0 +1,36 @@
+# seed-models.yaml
+# Downloads Granite 3.1 8B Instruct from HuggingFace and uploads to MinIO.
+# This is the most time-consuming step — Granite 3.1 8B is ~16Gi.
+#
+# Requires: huggingface-cli installed on the Ansible control node
+#           HF_TOKEN set if the model requires authentication
+
+- name: Check if model already seeded
+  ansible.builtin.command: >
+    mc ls sovereign-rag/models/granite-3.1-8b-instruct
+  register: model_check
+  failed_when: false
+  changed_when: false
+
+- name: Download Granite 3.1 8B Instruct from HuggingFace
+  ansible.builtin.command: >
+    huggingface-cli download
+    ibm-granite/granite-3.1-8b-instruct
+    --local-dir /tmp/granite-3.1-8b-instruct
+  environment:
+    HF_TOKEN: "{{ lookup('env', 'HF_TOKEN') }}"
+  when: model_check.rc != 0
+  # Only downloads if not already present in MinIO — idempotent.
+
+- name: Upload model weights to MinIO
+  ansible.builtin.command: >
+    mc cp --recursive
+    /tmp/granite-3.1-8b-instruct/
+    sovereign-rag/models/granite-3.1-8b-instruct/
+  when: model_check.rc != 0
+
+- name: Clean up local model download
+  ansible.builtin.file:
+    path: /tmp/granite-3.1-8b-instruct
+    state: absent
+  when: model_check.rc != 0

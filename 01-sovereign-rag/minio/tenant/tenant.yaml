@@ -1,0 +1,62 @@
+# tenant.yaml
+# MinIO Tenant definition — managed by the MinIO Operator.
+# Sized for a demo/PoC environment on NVIDIA L4-backed RHOAI.
+#
+# Storage sizing rationale:
+#   Granite 3.1 8B weights (bf16):  ~16Gi
+#   Regulatory PDFs + embeddings:    ~2Gi
+#   Pipeline artifacts / headroom:   ~12Gi
+#   Total per volume:                ~30Gi across 1 server, 1 volume
+#
+# For a demo, single server + single drive is sufficient.
+# Production would use erasure coding across multiple servers and drives.
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  name: sovereign-rag-minio
+  namespace: sovereign-rag
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+spec:
+  image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z
+  credsSecret:
+    name: minio-tenant-credentials
+
+  pools:
+    - name: pool-0
+      servers: 1
+      volumesPerServer: 1
+      volumeClaimTemplate:
+        metadata:
+          name: minio-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 50Gi    # adjust if your storage class has constraints
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+
+  mountPath: /export
+
+  # Expose MinIO console via OpenShift Route
+  # The operator creates a Service; the Route below exposes it externally
+  requestAutoCert: false    # set true if you have cert-manager configured
+
+  features:
+    bucketDNS: false        # not needed for demo scale
+
+  buckets:
+    - name: models          # Granite model weights
+    - name: documents       # raw regulatory PDFs
+    - name: embeddings      # processed chunks (optional — Milvus holds vectors)
+    - name: pipelines       # RHOAI pipeline artifacts
+
+  users:
+    - name: minio-tenant-credentials

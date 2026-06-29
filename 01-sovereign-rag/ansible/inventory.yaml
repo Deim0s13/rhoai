@@ -1,0 +1,12 @@
+# inventory.yaml
+# Ansible inventory for post-deploy MinIO configuration.
+# Credentials and endpoint retrieved from AWS SSM at runtime —
+# nothing sensitive stored here.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+  vars:
+    aws_region: "{{ lookup('env', 'AWS_REGION') }}"
+    cluster_name: "{{ lookup('env', 'CLUSTER_NAME') }}"
+    ssm_prefix: "/presales-lab/{{ cluster_name }}"

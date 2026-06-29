@@ -1,0 +1,28 @@
+# minio-operator-app.yaml
+# Argo CD Application that installs the MinIO Operator via OLM.
+# Sync wave 1 — must be healthy before the tenant is created.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minio-operator
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_ORG/rhoai        # update to your repo
+    targetRevision: main
+    path: 01-sovereign-rag/minio/operator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: minio-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

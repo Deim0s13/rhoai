@@ -1,0 +1,23 @@
+# bucket-policies.yaml
+# Applies read/write policies to MinIO buckets.
+# Keeps model weights read-only for the serving runtime;
+# pipeline artifacts bucket is read-write for RHOAI pipelines.
+
+- name: Set models bucket to read-only for serving
+  ansible.builtin.command: >
+    mc anonymous set download sovereign-rag/models
+  # Note: anonymous download is acceptable for model weights in a demo.
+  # In production, use IAM policies scoped to the serving service account.
+
+- name: Set documents bucket policy
+  ansible.builtin.command: >
+    mc anonymous set none sovereign-rag/documents
+  # Documents bucket locked down — access via MinIO credentials only.
+
+- name: Set embeddings bucket policy
+  ansible.builtin.command: >
+    mc anonymous set none sovereign-rag/embeddings
+
+- name: Set pipelines bucket policy
+  ansible.builtin.command: >
+    mc anonymous set none sovereign-rag/pipelines
