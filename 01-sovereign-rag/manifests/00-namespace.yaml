@@ -1,0 +1,10 @@
+# 00-namespace.yaml
+# Creates the OpenShift project that scopes all resources for this use case.
+# Labelled for easy identification and cleanup.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sovereign-rag
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+    use-case: sovereign-rag

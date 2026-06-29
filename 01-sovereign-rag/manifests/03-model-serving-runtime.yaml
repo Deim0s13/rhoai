@@ -1,0 +1,36 @@
+# 03-model-serving-runtime.yaml
+# Registers vLLM as a serving runtime in RHOAI.
+# This makes it available as an option when creating an InferenceService.
+# Based on the RHOAI-supported vLLM runtime template.
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime
+  namespace: sovereign-rag
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+  annotations:
+    openshift.io/display-name: "vLLM Runtime"
+spec:
+  multiModel: false
+  supportedModelFormats:
+    - name: pytorch
+      version: "1"
+      autoSelect: true
+  containers:
+    - name: kserve-container
+      image: quay.io/rh-aiservices-bu/vllm-openai-ubi9:0.6.2
+      command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+      args:
+        - "--model=/mnt/models"
+        - "--port=8080"
+        - "--dtype=auto" # auto-selects based on GPU capability
+        - "--max-model-len=4096" # adjust up if your GPU has headroom
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      resources:
+        requests:
+          nvidia.com/gpu: "1"
+        limits:
+          nvidia.com/gpu: "1"

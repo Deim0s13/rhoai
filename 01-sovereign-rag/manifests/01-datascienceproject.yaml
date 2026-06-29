@@ -1,0 +1,10 @@
+# 01-datascienceproject.yaml
+# RHOAI DataScienceProject ties the namespace into the RHOAI control plane.
+# This is what makes the project visible in the RHOAI dashboard.
+apiVersion: datasciencecluster.opendatahub.io/v1
+kind: DataScienceProject
+metadata:
+  name: sovereign-rag
+  namespace: sovereign-rag
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab

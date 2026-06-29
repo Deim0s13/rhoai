@@ -1,0 +1,45 @@
+# 05-workbench.yaml
+# RHOAI Workbench (Jupyter) for running the RAG pipeline notebooks.
+# Uses the standard data science image — no custom image needed.
+# Sized conservatively; the heavy compute is in the InferenceService, not here.
+apiVersion: kubeflow.org/v1
+kind: Notebook
+metadata:
+  name: sovereign-rag-workbench
+  namespace: sovereign-rag
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+  annotations:
+    notebooks.opendatahub.io/inject-oauth: "true"
+spec:
+  template:
+    spec:
+      containers:
+        - name: sovereign-rag-workbench
+          image: quay.io/opendatahub/notebooks:jupyter-datascience-ubi9-python-3.11-2024b
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+          volumeMounts:
+            - name: workbench-storage
+              mountPath: /opt/app-root/src
+      volumes:
+        - name: workbench-storage
+          persistentVolumeClaim:
+            claimName: sovereign-rag-workbench-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sovereign-rag-workbench-pvc
+  namespace: sovereign-rag
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

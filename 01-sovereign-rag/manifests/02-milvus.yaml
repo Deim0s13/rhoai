@@ -1,0 +1,82 @@
+# 02-milvus.yaml
+# Milvus standalone — suitable for demo/PoC scale.
+# For production, replace with Milvus cluster mode or Milvus Operator.
+# Standalone uses local storage; no external etcd or message queue needed.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: milvus-standalone
+  namespace: sovereign-rag
+  labels:
+    app: milvus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: milvus
+  template:
+    metadata:
+      labels:
+        app: milvus
+    spec:
+      containers:
+        - name: milvus
+          image: milvusdb/milvus:v2.4.0
+          args: ["milvus", "run", "standalone"]
+          env:
+            - name: ETCD_USE_EMBED
+              value: "true"
+            - name: ETCD_DATA_DIR
+              value: "/var/lib/milvus/etcd"
+            - name: COMMON_STORAGETYPE
+              value: "local"
+          ports:
+            - containerPort: 19530 # gRPC — used by pymilvus client
+              name: grpc
+            - containerPort: 9091 # metrics / health
+              name: metrics
+          volumeMounts:
+            - name: milvus-data
+              mountPath: /var/lib/milvus
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2"
+      volumes:
+        - name: milvus-data
+          persistentVolumeClaim:
+            claimName: milvus-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: milvus-data-pvc
+  namespace: sovereign-rag
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: milvus
+  namespace: sovereign-rag
+  labels:
+    app: milvus
+spec:
+  selector:
+    app: milvus
+  ports:
+    - port: 19530
+      targetPort: 19530
+      name: grpc
+    - port: 9091
+      targetPort: 9091
+      name: metrics
