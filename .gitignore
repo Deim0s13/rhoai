@@ -1,0 +1,109 @@
+# =============================================================================
+# rhoai presales lab — .gitignore
+# Place this at the repo root: rhoai/.gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Credentials and secrets — never commit these
+# -----------------------------------------------------------------------------
+.env
+.env.*
+*-credentials.yaml
+*-credentials.yml
+*-secret.yaml
+*-secret.yml
+terraform.tfvars
+terraform.tfvars.json
+*.tfvars
+*.tfvars.json
+kubeconfig
+*.kubeconfig
+
+# -----------------------------------------------------------------------------
+# Data — PDFs and raw documents are not committed
+# Source documents must be downloaded locally per data/README.md
+# -----------------------------------------------------------------------------
+data/raw/
+*.pdf
+
+# -----------------------------------------------------------------------------
+# Terraform
+# -----------------------------------------------------------------------------
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.lock.hcl
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# -----------------------------------------------------------------------------
+# Ansible
+# -----------------------------------------------------------------------------
+*.retry
+ansible/roles/*/files/
+ansible/group_vars/all/vault.yml
+
+# -----------------------------------------------------------------------------
+# Jupyter notebooks — checkpoints only, commit the notebooks themselves
+# -----------------------------------------------------------------------------
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.python-version
+
+# -----------------------------------------------------------------------------
+# macOS
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# -----------------------------------------------------------------------------
+# Zed editor
+# -----------------------------------------------------------------------------
+.zed/
+
+# -----------------------------------------------------------------------------
+# Model weights — too large for git, managed via MinIO / Ansible seeding
+# -----------------------------------------------------------------------------
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+*.onnx
+models/
+
+# -----------------------------------------------------------------------------
+# Temporary and local files
+# -----------------------------------------------------------------------------
+*.log
+*.tmp
+*.swp
+*.swo
+tmp/
+temp/
