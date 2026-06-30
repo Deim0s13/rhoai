@@ -2,10 +2,14 @@
 # Secret that KServe uses to connect to the model storage backend.
 #
 # UPDATED: originally written for native AWS S3. This environment uses
-# self-hosted MinIO (deployed via manifests/02-milvus.yaml's sibling
-# pattern — see minio/tenant/tenant.yaml), so the annotations below
-# tell KServe's S3 storage initializer to use a custom endpoint rather
-# than assuming AWS.
+# self-hosted MinIO, so the annotations below tell KServe's S3 storage
+# initializer to use a custom endpoint rather than assuming AWS.
+#
+# FIXED: AWS_S3_ENDPOINT must be the bare hostname only, with no
+# scheme prefix. The storage initializer combines this value with the
+# serving.kserve.io/s3-usehttps annotation to build the full URL itself.
+# Including "https://" in the secret value caused a doubled scheme
+# ("https://https://...") and a DNS resolution failure.
 #
 # DO NOT commit real credentials. Apply with envsubst:
 #   MINIO_ACCESS_KEY=minio-admin \
@@ -22,8 +26,6 @@ metadata:
   annotations:
     opendatahub.io/connection-type: s3
     openshift.io/display-name: "MinIO Data Connection"
-    # These annotations are what KServe's S3 storage initializer reads
-    # to know it's talking to a non-AWS S3-compatible endpoint.
     serving.kserve.io/s3-endpoint: "${MINIO_API_ROUTE}"
     serving.kserve.io/s3-usehttps: "1"
     serving.kserve.io/s3-region: "us-east-2"
@@ -33,6 +35,6 @@ stringData:
   AWS_ACCESS_KEY_ID: "${MINIO_ACCESS_KEY}"
   AWS_SECRET_ACCESS_KEY: "${MINIO_SECRET_KEY}"
   AWS_DEFAULT_REGION: "us-east-2"
-  AWS_S3_ENDPOINT: "https://${MINIO_API_ROUTE}"
+  AWS_S3_ENDPOINT: "${MINIO_API_ROUTE}"
   AWS_S3_USE_HTTPS: "1"
   AWS_S3_VERIFY_SSL: "1"
