@@ -11,9 +11,15 @@
 # The KServe validating webhook requires exactly one predictor type
 # (Model, PyTorch, SKLearn, PodSpec, etc.) — having both `model:` and
 # `containers:` set under predictor was read as two competing predictor
-# specs and rejected. args/resources now live directly under `model:`,
-# which supports them natively (confirmed via `oc explain
-# inferenceservice.spec.predictor.model --recursive`).
+# specs and rejected. args/resources now live directly under `model:`.
+#
+# FIXED: added the RawDeployment annotation. Default Serverless mode
+# requires the namespace to be enrolled in the cluster's Service Mesh
+# member roll — this cluster has Service Mesh integration enabled for
+# Serverless InferenceServices, and sovereign-rag was never added to
+# the mesh. RawDeployment mode skips Knative/Istio entirely and deploys
+# a standard Kubernetes Deployment instead — simpler, no mesh dependency,
+# and avoids taking on Service Mesh enrollment just for this use case.
 #
 # GPU NOTE:
 # Configured for NVIDIA L4 (24GB VRAM) — confirmed on this cluster via
@@ -26,9 +32,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rhoai-presales-lab
   annotations:
-    serving.knative.openshift.io/enablePassthrough: "true"
-    sidecar.istio.io/inject: "true"
-    sidecar.istio.io/rewriteAppHTTPProbers: "true"
+    serving.kserve.io/deploymentMode: "RawDeployment"
 spec:
   predictor:
     serviceAccountName: minio-sa
