@@ -1,20 +1,21 @@
 # 03-model-serving-runtime.yaml
 # Registers vLLM as a serving runtime in RHOAI.
-# This makes it available as an option when creating an InferenceService.
 #
 # UPDATED: switched from quay.io/rh-aiservices-bu/vllm-openai-ubi9:0.6.2
 # to registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5 — Red Hat AI Inference
 # Server, the supported, versioned, enterprise-grade vLLM distribution.
 # The original Quay tag no longer exists in that repo.
 #
-# FIXED: removed the positional /mnt/models argument. KServe's model
-# predictor type automatically injects --model=/mnt/models into the
-# container args at runtime. Our manifest also passing /mnt/models as
-# a positional argument caused `vllm serve` to receive both the
-# injected --model flag AND a positional path, which the new RHAIIS
-# CLI rejects ("unrecognized arguments: /mnt/models"). KServe's
-# auto-injection is what actually wires up the storage-initializer's
-# output to the serving container, so we let it do that job alone.
+# FIXED: removed the positional /mnt/models argument — KServe injects
+# this automatically for the model predictor type.
+#
+# FIXED: this ServingRuntime is now the single source of truth for all
+# vLLM serving arguments. Previously, args were split between this file
+# and 04-inference-service.yaml's model.args; KServe merges both lists
+# at runtime, which produced duplicate/conflicting flags and a CLI
+# argument parsing error. GPU-specific tuning (bfloat16, 8192 context,
+# 0.85 memory utilization — sized for the NVIDIA L4's 24GB VRAM) now
+# lives here instead of being split across two files.
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:
@@ -36,8 +37,9 @@ spec:
       command: ["vllm", "serve"]
       args:
         - "--port=8080"
-        - "--dtype=auto"
-        - "--max-model-len=4096"
+        - "--dtype=bfloat16"
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.85"
       ports:
         - containerPort: 8080
           protocol: TCP

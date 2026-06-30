@@ -2,24 +2,18 @@
 # Deploys the model using the vLLM runtime defined above.
 # Model: granite-3.1-8b-instruct
 #
-# UPDATED: storageUri now points at self-hosted MinIO (bucket: models)
-# rather than native AWS S3. Credentials and endpoint are resolved via
-# the ServiceAccount below, which references the MinIO data connection
-# secret (06-data-connection.yaml).
+# UPDATED: storageUri points at self-hosted MinIO (bucket: models).
+# Credentials and endpoint are resolved via the ServiceAccount, which
+# references the MinIO data connection secret (06-data-connection.yaml).
 #
-# FIXED: removed the sibling `containers:` block under predictor.
-# The KServe validating webhook requires exactly one predictor type
-# (Model, PyTorch, SKLearn, PodSpec, etc.) — having both `model:` and
-# `containers:` set under predictor was read as two competing predictor
-# specs and rejected. args/resources now live directly under `model:`.
-#
-# FIXED: added the RawDeployment annotation. Default Serverless mode
-# requires the namespace to be enrolled in the cluster's Service Mesh
-# member roll — this cluster has Service Mesh integration enabled for
-# Serverless InferenceServices, and sovereign-rag was never added to
-# the mesh. RawDeployment mode skips Knative/Istio entirely and deploys
-# a standard Kubernetes Deployment instead — simpler, no mesh dependency,
-# and avoids taking on Service Mesh enrollment just for this use case.
+# FIXED: removed args from model:. KServe merges ServingRuntime
+# container args with InferenceService model args, and having both
+# define overlapping flags (--port, --dtype, --max-model-len, plus a
+# duplicate --model) produced a malformed, self-contradicting argument
+# list that the vllm CLI rejected. All serving arguments now live in
+# the ServingRuntime (03-model-serving-runtime.yaml) as the single
+# source of truth; this InferenceService only specifies what model
+# to load and where its resources/scheduling constraints are.
 #
 # GPU NOTE:
 # Configured for NVIDIA L4 (24GB VRAM) — confirmed on this cluster via
@@ -47,12 +41,6 @@ spec:
         name: pytorch
       runtime: vllm-runtime
       storageUri: "s3://models/granite-3.1-8b-instruct"
-      args:
-        - "--model=/mnt/models"
-        - "--port=8080"
-        - "--dtype=bfloat16"
-        - "--max-model-len=8192"
-        - "--gpu-memory-utilization=0.85"
       resources:
         requests:
           nvidia.com/gpu: "1"
