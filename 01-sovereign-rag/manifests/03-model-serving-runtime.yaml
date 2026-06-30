@@ -1,7 +1,24 @@
 # 03-model-serving-runtime.yaml
 # Registers vLLM as a serving runtime in RHOAI.
 # This makes it available as an option when creating an InferenceService.
-# Based on the RHOAI-supported vLLM runtime template.
+#
+# UPDATED: switched from quay.io/rh-aiservices-bu/vllm-openai-ubi9:0.6.2
+# to registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5 — Red Hat AI Inference
+# Server, the supported, versioned, enterprise-grade vLLM distribution.
+#
+# This was a necessary fix, not just a preference: the original Quay tag
+# (0.6.2) no longer exists in that repo — community Quay tags are not
+# guaranteed stable over time, which makes that registry unsuitable for
+# a reproducible demo asset regardless of which tag is pinned.
+#
+# It is also a better fit for the use case narrative: Red Hat AI Inference
+# Server is a named, supported product with enterprise backing, which
+# matters in a banking/regulated-industry conversation far more than a
+# community-maintained image.
+#
+# Command/args differ slightly from the original quay.io image — RHAIIS
+# uses `vllm serve` directly rather than the
+# `python -m vllm.entrypoints.openai.api_server` invocation.
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:
@@ -10,7 +27,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rhoai-presales-lab
   annotations:
-    openshift.io/display-name: "vLLM Runtime"
+    openshift.io/display-name: "vLLM Runtime (Red Hat AI Inference Server)"
 spec:
   multiModel: false
   supportedModelFormats:
@@ -19,13 +36,13 @@ spec:
       autoSelect: true
   containers:
     - name: kserve-container
-      image: quay.io/rh-aiservices-bu/vllm-openai-ubi9:0.6.2
-      command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+      image: registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5
+      command: ["vllm", "serve"]
       args:
-        - "--model=/mnt/models"
+        - "/mnt/models"
         - "--port=8080"
-        - "--dtype=auto" # auto-selects based on GPU capability
-        - "--max-model-len=4096" # adjust up if your GPU has headroom
+        - "--dtype=auto"
+        - "--max-model-len=4096"
       ports:
         - containerPort: 8080
           protocol: TCP
