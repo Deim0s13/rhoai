@@ -1,12 +1,21 @@
 # inventory.yaml
 # Ansible inventory for post-deploy MinIO configuration.
-# Credentials and endpoint retrieved from AWS SSM at runtime —
-# nothing sensitive stored here.
+#
+# UPDATED: originally designed to retrieve credentials from AWS SSM,
+# populated by Terraform. This environment is provisioned via RHDP
+# (Red Hat Demo Platform) and does not provide AWS IAM credentials,
+# so Terraform and SSM are not used here. Credentials are instead
+# passed directly as environment variables at playbook runtime.
+#
+# This also makes the playbook portable across any environment type —
+# RHDP sandbox, ROSA with full AWS access, or a local cluster — since
+# it no longer assumes a specific cloud credential backend.
 all:
   hosts:
     localhost:
       ansible_connection: local
   vars:
-    aws_region: "{{ lookup('env', 'AWS_REGION') }}"
-    cluster_name: "{{ lookup('env', 'CLUSTER_NAME') }}"
-    ssm_prefix: "/presales-lab/{{ cluster_name }}"
+    minio_access_key: "{{ lookup('env', 'MINIO_ACCESS_KEY') }}"
+    minio_secret_key: "{{ lookup('env', 'MINIO_SECRET_KEY') }}"
+    minio_endpoint: "{{ lookup('env', 'MINIO_ENDPOINT') }}"
+    hf_token: "{{ lookup('env', 'HF_TOKEN') }}"

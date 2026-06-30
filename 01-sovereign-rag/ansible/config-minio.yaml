@@ -1,15 +1,27 @@
 # configure-minio.yaml
 # Post-deploy configuration tasks for MinIO.
-# Runs after GitOps has deployed the tenant and it is healthy.
+# Runs after MinIO is deployed and healthy.
+#
+# UPDATED: removed AWS SSM credential retrieval. Credentials are now
+# passed directly as environment variables — see inventory.yaml.
+# This environment (RHDP sandbox) does not provide AWS IAM access,
+# so the original Terraform/SSM design does not apply here.
 #
 # Prerequisites:
-#   - MinIO tenant running and reachable
-#   - AWS CLI configured with permissions to read SSM parameters
+#   - MinIO running and reachable (Deployment + Service + Route)
 #   - mc (MinIO client) installed on the Ansible control node
+#     NOTE: on macOS, ensure this is the MinIO client, not Midnight
+#     Commander — both install a binary named `mc`. Verify with:
+#       mc --version
+#     Should report a MinIO RELEASE version, not GNU Midnight Commander.
+#   - huggingface-cli installed on the Ansible control node
 #   - Granite model weights accessible for seeding (see roles/minio-setup)
 #
 # Run with:
-#   AWS_REGION=us-east-1 CLUSTER_NAME=my-cluster \
+#   MINIO_ACCESS_KEY=minio-admin \
+#   MINIO_SECRET_KEY=minio-password-2024 \
+#   MINIO_ENDPOINT=https://minio-api-sovereign-rag.apps.your-cluster.com \
+#   HF_TOKEN=your-huggingface-token \
 #     ansible-playbook ansible/configure-minio.yaml
 
 - name: Configure MinIO post-deployment
@@ -17,36 +29,39 @@
   gather_facts: false
 
   tasks:
-    - name: Retrieve MinIO credentials from SSM
-      community.aws.aws_ssm_parameter_store:
-        name: "{{ ssm_prefix }}/minio/access-key"
-        region: "{{ aws_region }}"
-      register: minio_access_key
-
-    - name: Retrieve MinIO secret key from SSM
-      community.aws.aws_ssm_parameter_store:
-        name: "{{ ssm_prefix }}/minio/secret-key"
-        region: "{{ aws_region }}"
-      register: minio_secret_key
-
-    - name: Retrieve MinIO endpoint from SSM
-      community.aws.aws_ssm_parameter_store:
-        name: "{{ ssm_prefix }}/minio/endpoint"
-        region: "{{ aws_region }}"
-      register: minio_endpoint
+    - name: Verify required variables are set
+      ansible.builtin.assert:
+        that:
+          - minio_access_key | length > 0
+          - minio_secret_key | length > 0
+          - minio_endpoint | length > 0
+        fail_msg: >
+          One or more required environment variables are not set.
+          Required: MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_ENDPOINT.
+          See the run command in the header of this file.
 
     - name: Configure mc alias for this MinIO instance
       ansible.builtin.command: >
         mc alias set sovereign-rag
-        {{ minio_endpoint.value }}
-        {{ minio_access_key.value }}
-        {{ minio_secret_key.value }}
-      no_log: true    # suppress credentials from Ansible output
+        {{ minio_endpoint }}
+        {{ minio_access_key }}
+        {{ minio_secret_key }}
+      no_log: true # suppress credentials from Ansible output
 
     - name: Verify MinIO connectivity
       ansible.builtin.command: mc admin info sovereign-rag
       register: minio_info
       failed_when: minio_info.rc != 0
+      changed_when: false
+
+    - name: Create buckets if they do not exist
+      ansible.builtin.command: >
+        mc mb --ignore-existing sovereign-rag/{{ item }}
+      loop:
+        - models
+        - documents
+        - embeddings
+        - pipelines
 
     - name: Apply bucket policies
       ansible.builtin.include_role:
@@ -63,9 +78,11 @@
         name: minio-setup
         tasks_from: seed-documents
 
-    - name: Update MinIO endpoint SSM parameter
-      community.aws.aws_ssm_parameter_store:
-        name: "{{ ssm_prefix }}/minio/endpoint"
-        value: "{{ minio_endpoint.value }}"
-        region: "{{ aws_region }}"
-        string_type: String
+    - name: Confirm seeding completed
+      ansible.builtin.command: mc ls sovereign-rag
+      register: bucket_listing
+      changed_when: false
+
+    - name: Display bucket listing
+      ansible.builtin.debug:
+        msg: "{{ bucket_listing.stdout_lines }}"
