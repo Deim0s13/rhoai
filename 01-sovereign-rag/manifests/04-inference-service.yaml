@@ -1,18 +1,15 @@
 # 04-inference-service.yaml
 # Deploys the model using the vLLM runtime defined above.
-# Model: granite-3.1-8b-instruct — Red Hat's supported open model,
-# appropriate for a regulated-environment demo (no external API calls).
+# Model: granite-3.1-8b-instruct
 #
-# MODEL STORAGE NOTE:
-# The storageUri below assumes the model is available in an S3-compatible
-# bucket you control. See data/README.md for how to pre-stage the model.
-# Alternatively, use a PVC with the model pre-downloaded.
+# UPDATED: storageUri now points at self-hosted MinIO (bucket: models)
+# rather than native AWS S3. Credentials and endpoint are resolved via
+# the ServiceAccount below, which references the MinIO data connection
+# secret (06-data-connection.yaml).
 #
 # GPU NOTE:
-# Configured for NVIDIA L4 (24GB VRAM).
-# granite-3.1-8b in bf16 requires ~16GB VRAM, fitting comfortably within the L4.
-# Verify the exact node label before deploying:
-#   oc get nodes -o json | jq '.items[].metadata.labels' | grep nvidia
+# Configured for NVIDIA L4 (24GB VRAM) — confirmed on this cluster via
+# node label nvidia.com/gpu.product=NVIDIA-L4.
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
@@ -26,18 +23,14 @@ metadata:
     sidecar.istio.io/rewriteAppHTTPProbers: "true"
 spec:
   predictor:
+    serviceAccountName: minio-sa # references the SA bound to our data connection secret
     model:
       modelFormat:
         name: pytorch
       runtime: vllm-runtime
-      storageUri: "s3://YOUR_BUCKET/granite-3.1-8b-instruct"
-      # --- swap to PVC if no S3 available ---
-      # volumes:
-      #   - name: model-volume
-      #     persistentVolumeClaim:
-      #       claimName: granite-model-pvc
+      storageUri: "s3://models/granite-3.1-8b-instruct"
     nodeSelector:
-      nvidia.com/gpu.product: NVIDIA-L4 # verify exact label on your cluster
+      nvidia.com/gpu.product: NVIDIA-L4
     tolerations:
       - key: nvidia.com/gpu
         operator: Exists
