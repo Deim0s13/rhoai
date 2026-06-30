@@ -13,7 +13,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR_ORG/rhoai        # update to your repo
+    repoURL: https://github.com/Deim0s13/rhoai # update to your repo
     targetRevision: main
     path: 01-sovereign-rag/minio/operator
   destination:
