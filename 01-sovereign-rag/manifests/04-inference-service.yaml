@@ -7,6 +7,14 @@
 # the ServiceAccount below, which references the MinIO data connection
 # secret (06-data-connection.yaml).
 #
+# FIXED: removed the sibling `containers:` block under predictor.
+# The KServe validating webhook requires exactly one predictor type
+# (Model, PyTorch, SKLearn, PodSpec, etc.) — having both `model:` and
+# `containers:` set under predictor was read as two competing predictor
+# specs and rejected. args/resources now live directly under `model:`,
+# which supports them natively (confirmed via `oc explain
+# inferenceservice.spec.predictor.model --recursive`).
+#
 # GPU NOTE:
 # Configured for NVIDIA L4 (24GB VRAM) — confirmed on this cluster via
 # node label nvidia.com/gpu.product=NVIDIA-L4.
@@ -23,28 +31,26 @@ metadata:
     sidecar.istio.io/rewriteAppHTTPProbers: "true"
 spec:
   predictor:
-    serviceAccountName: minio-sa # references the SA bound to our data connection secret
-    model:
-      modelFormat:
-        name: pytorch
-      runtime: vllm-runtime
-      storageUri: "s3://models/granite-3.1-8b-instruct"
+    serviceAccountName: minio-sa
     nodeSelector:
       nvidia.com/gpu.product: NVIDIA-L4
     tolerations:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
-    containers:
-      - name: kserve-container
-        args:
-          - "--model=/mnt/models"
-          - "--port=8080"
-          - "--dtype=bfloat16"
-          - "--max-model-len=8192"
-          - "--gpu-memory-utilization=0.85"
-        resources:
-          requests:
-            nvidia.com/gpu: "1"
-          limits:
-            nvidia.com/gpu: "1"
+    model:
+      modelFormat:
+        name: pytorch
+      runtime: vllm-runtime
+      storageUri: "s3://models/granite-3.1-8b-instruct"
+      args:
+        - "--model=/mnt/models"
+        - "--port=8080"
+        - "--dtype=bfloat16"
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.85"
+      resources:
+        requests:
+          nvidia.com/gpu: "1"
+        limits:
+          nvidia.com/gpu: "1"
