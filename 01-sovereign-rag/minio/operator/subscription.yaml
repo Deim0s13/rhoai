@@ -12,8 +12,8 @@ metadata:
     app.kubernetes.io/part-of: rhoai-presales-lab
 spec:
   channel: stable
-  name: minio-operator
-  source: certified-operators # updated from community-operators
+  name: minio-object-store-operator # confirmed name from certified catalog
+  source: certified-operators
   sourceNamespace: openshift-marketplace
   installPlanApproval: Automatic
 ---
