@@ -6,16 +6,19 @@
 # Server, the supported, versioned, enterprise-grade vLLM distribution.
 # The original Quay tag no longer exists in that repo.
 #
-# FIXED: removed the positional /mnt/models argument — KServe injects
-# this automatically for the model predictor type.
+# FIXED: this ServingRuntime is the single source of truth for all vLLM
+# serving arguments — previously split across this file and
+# 04-inference-service.yaml's model.args, which KServe merged into a
+# duplicated/conflicting argument list.
 #
-# FIXED: this ServingRuntime is now the single source of truth for all
-# vLLM serving arguments. Previously, args were split between this file
-# and 04-inference-service.yaml's model.args; KServe merges both lists
-# at runtime, which produced duplicate/conflicting flags and a CLI
-# argument parsing error. GPU-specific tuning (bfloat16, 8192 context,
-# 0.85 memory utilization — sized for the NVIDIA L4's 24GB VRAM) now
-# lives here instead of being split across two files.
+# FIXED: explicitly pass the model path as a positional argument.
+# Initial assumption was that KServe auto-injects --model=/mnt/models
+# for the model predictor type — confirmed FALSE for this runtime/KServe
+# version combination. Without it, vllm serve fell through to trying to
+# resolve a default model from HuggingFace Hub, which failed because
+# outgoing traffic is disabled in the container (correct behaviour for
+# an air-gapped/sovereign deployment — it's just not pointed at our
+# local weights without this explicit argument).
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:
@@ -36,6 +39,7 @@ spec:
       image: registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5
       command: ["vllm", "serve"]
       args:
+        - "/mnt/models"
         - "--port=8080"
         - "--dtype=bfloat16"
         - "--max-model-len=8192"
