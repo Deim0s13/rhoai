@@ -13,7 +13,7 @@
 #
 # DO NOT commit real credentials. Apply with envsubst:
 #   MINIO_ACCESS_KEY=minio-admin \
-#   MINIO_SECRET_KEY=minio-password-2024 \
+#   MINIO_SECRET_KEY=<your-secret-key> \
 #   MINIO_API_ROUTE=$(oc get route minio-api -n sovereign-rag -o jsonpath='{.spec.host}') \
 #     envsubst < manifests/06-data-connection.yaml | oc apply -f -
 apiVersion: v1

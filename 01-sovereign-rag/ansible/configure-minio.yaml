@@ -19,7 +19,7 @@
 #
 # Run with:
 #   MINIO_ACCESS_KEY=minio-admin \
-#   MINIO_SECRET_KEY=minio-password-2024 \
+#   MINIO_SECRET_KEY=<your-secret-key> \
 #   MINIO_ENDPOINT=https://minio-api-sovereign-rag.apps.your-cluster.com \
 #   HF_TOKEN=your-huggingface-token \
 #     ansible-playbook ansible/configure-minio.yaml
