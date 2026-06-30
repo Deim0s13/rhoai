@@ -2,7 +2,16 @@
 # Downloads Granite 3.1 8B Instruct from HuggingFace and uploads to MinIO.
 # This is the most time-consuming step — Granite 3.1 8B is ~16Gi.
 #
-# Requires: huggingface-cli installed on the Ansible control node
+# UPDATED: huggingface-cli is deprecated and now a no-op stub that prints
+# a deprecation notice instead of downloading anything. This caused a
+# silent failure — the task appeared to succeed but nothing was actually
+# downloaded, and the bucket stayed empty. Switched to the replacement
+# `hf` CLI command. Added an explicit check that the download actually
+# produced files before attempting the upload, so this kind of silent
+# failure surfaces immediately instead of passing through unnoticed.
+#
+# Requires: hf CLI installed on the Ansible control node
+#           (pip install -U huggingface_hub[cli])
 #           HF_TOKEN set if the model requires authentication
 
 - name: Check if model already seeded
@@ -14,13 +23,25 @@
 
 - name: Download Granite 3.1 8B Instruct from HuggingFace
   ansible.builtin.command: >
-    huggingface-cli download
+    hf download
     ibm-granite/granite-3.1-8b-instruct
     --local-dir /tmp/granite-3.1-8b-instruct
   environment:
-    HF_TOKEN: "{{ lookup('env', 'HF_TOKEN') }}"
+    HF_TOKEN: "{{ hf_token }}"
   when: model_check.rc != 0
-  # Only downloads if not already present in MinIO — idempotent.
+  register: model_download
+
+- name: Verify the download actually produced files
+  ansible.builtin.find:
+    paths: /tmp/granite-3.1-8b-instruct
+    patterns: "*"
+  register: downloaded_files
+  when: model_check.rc != 0
+  failed_when: model_check.rc != 0 and downloaded_files.matched == 0
+  # Explicit failure here — rather than silently proceeding to an empty
+  # upload — is what would have caught the huggingface-cli deprecation
+  # issue immediately instead of surfacing three steps later as a
+  # confusing "No model found" error inside the InferenceService pod.
 
 - name: Upload model weights to MinIO
   ansible.builtin.command: >
@@ -28,6 +49,15 @@
     /tmp/granite-3.1-8b-instruct/
     sovereign-rag/models/granite-3.1-8b-instruct/
   when: model_check.rc != 0
+
+- name: Verify upload succeeded
+  ansible.builtin.command: >
+    mc ls sovereign-rag/models/granite-3.1-8b-instruct
+  register: upload_check
+  failed_when: upload_check.rc != 0 or upload_check.stdout == ""
+  changed_when: false
+  # Final confirmation — fail loudly here rather than discovering an
+  # empty bucket later inside a running pod's init container.
 
 - name: Clean up local model download
   ansible.builtin.file:
