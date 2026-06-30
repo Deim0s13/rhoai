@@ -1,183 +1,322 @@
-# RHOAI Presales Lab
+# 01 — Sovereign RAG on RHOAI
 
-A collection of self-contained, redeployable AI use cases built on
-Red Hat OpenShift AI (RHOAI). Each use case is designed to be:
+## Overview
 
-- **Reproducible** — rebuilt from scratch in a disposable environment
-- **Documented** — handoff-ready without tribal knowledge
-- **Relevant** — grounded in regulated industry scenarios, particularly financial services
-- **Demo-ready** — structured to support customer conversations as well as personal learning
+A fully air-gapped retrieval-augmented generation (RAG) pipeline running on
+Red Hat OpenShift AI. A user queries regulatory documents in plain language;
+the system retrieves relevant chunks from Milvus and generates a grounded
+answer using a locally-served Granite model via Red Hat AI Inference Server
+(vLLM).
 
-This repo is maintained by a Red Hat pre-sales architect. It is not an official
-Red Hat product or reference architecture.
+No data leaves the cluster. No external API calls.
 
----
+Designed for regulated environments — specifically financial services —
+where data sovereignty, auditability, and operational control are
+non-negotiable.
 
-## How this repo is structured
-
-Each use case lives in its own numbered directory and is fully self-contained.
-All infrastructure, automation, and application code needed to deploy and run
-the use case is inside that directory.
-
-    rhoai/
-    ├── README.md                    ← you are here
-    ├── .gitignore
-    └── 01-sovereign-rag/            ← use case 01
-        ├── README.md                ← use case overview and deploy guide
-        ├── manifests/               ← RHOAI platform manifests
-        ├── gitops/                  ← Argo CD Applications
-        ├── minio/                   ← MinIO Operator and Tenant manifests
-        ├── terraform/               ← AWS bootstrap
-        ├── ansible/                 ← post-deploy automation
-        ├── notebooks/               ← Jupyter notebooks
-        └── data/                    ← data provenance and download instructions
+**Status: model serving layer confirmed working end to end on a live RHDP
+sandbox environment.** Workbench and notebook validation in progress —
+see `DEPLOYMENT-LOG-2026-06-30.md` for full detail on what was tested,
+what broke, and what was fixed.
 
 ---
 
-## Use cases
+## Architecture
 
-| # | Name | Status | Description |
-|---|---|---|---|
-| 01 | [Sovereign RAG](./01-sovereign-rag/README.md) | Ready | Air-gapped RAG pipeline on RHOAI using Granite and Milvus |
-| 02 | InstructLab Fine-Tuning | Planned | Domain adaptation of Granite using InstructLab and RHOAI distributed training |
-| 03 | Model Risk Monitoring | Planned | Model drift and bias monitoring using TrustyAI and RHOAI model monitoring |
-| 04 | Agentic Fraud Detection | Planned | LLM-based anomaly reasoning pipeline linked to Ansible remediation |
-| 05 | LLM Inference Benchmarking | Planned | vLLM throughput and latency benchmarking on OpenShift with NVIDIA L4 |
+### Component overview
+
+```mermaid
+flowchart TD
+    A([User query]) --> B[Workbench / application]
+    B -->|embed query — MiniLM, CPU| C[(Milvus\nvector store)]
+    C -->|top-k chunks retrieved| D[Prompt construction]
+    D --> E[Red Hat AI Inference Server\nGranite 3.1 8B — GPU / NVIDIA L4]
+    E --> F([Grounded answer])
+```
+
+### Deployment architecture (as actually deployed)
+
+```mermaid
+flowchart TD
+    NS[Namespace: sovereign-rag\nlabelled opendatahub.io/dashboard=true] --> MINIO[MinIO\nplain Deployment + PVC + Route]
+    NS --> MILVUS[Milvus standalone\nDeployment + PVC]
+    NS --> SR[ServingRuntime\nregistry.redhat.io/rhaiis/vllm-cuda-rhel9]
+    NS --> ISVC[InferenceService\nRawDeployment mode]
+    SR --> ISVC
+    MINIO --> B1[models bucket]
+    MINIO --> B2[documents bucket]
+    MINIO --> B3[embeddings bucket]
+    MINIO --> B4[pipelines bucket]
+    B1 -->|storageUri| ISVC
+    ANSIBLE[Ansible\nlocal credentials, no SSM] -->|seeds| B1
+    ANSIBLE -->|seeds| B2
+```
+
+**This differs from the original design** — no Terraform, no GitOps, no
+MinIO Operator. See "Deployment notes" below for why.
 
 ---
 
-## Environment and lifecycle approach
+## Repository structure
 
-### Environments are disposable — the repo is not
+    01-sovereign-rag/
+    ├── README.md                         ← this file
+    ├── DEPLOYMENT-LOG-2026-06-30.md       ← detailed log of first live deploy
+    ├── manifests/                        ← RHOAI platform manifests
+    │   ├── 00-namespace.yaml
+    │   ├── 02-milvus.yaml
+    │   ├── 03-model-serving-runtime.yaml
+    │   ├── 04-inference-service.yaml
+    │   ├── 05-workbench.yaml
+    │   ├── 06-data-connection.yaml
+    │   └── 07-serviceaccount.yaml
+    ├── gitops/                           ← NOT USED in this deployment path — see notes
+    ├── minio/
+    │   └── tenant/
+    │       ├── tenant.yaml               ← plain MinIO Deployment, not an operator CR
+    │       └── tenant-secret.yaml
+    ├── terraform/                        ← NOT USED in this deployment path — see notes
+    ├── ansible/
+    │   ├── inventory.yaml
+    │   ├── configure-minio.yaml
+    │   └── roles/
+    │       └── minio-setup/
+    │           └── tasks/
+    │               ├── bucket-policies.yaml
+    │               ├── seed-models.yaml
+    │               └── seed-documents.yaml
+    ├── notebooks/
+    │   ├── 01-ingest-and-embed.ipynb
+    │   ├── 02-rag-query.ipynb
+    │   ├── requirements.txt
+    │   └── WORKBENCH-SETUP.md
+    └── data/
+        └── README.md
 
-RHOAI environments are requested on demand and torn down after use.
-Everything needed to reconstruct an environment must live in this repo.
-Nothing should require manual steps that aren't documented.
+Note: `manifests/01-datascienceproject.yaml` was removed — RHOAI has no
+`DataScienceProject` CRD. A namespace is labelled instead (see Deploy steps).
 
-### Lifecycle for each use case
+---
 
-Every use case follows the same four-phase lifecycle:
+## Deployment notes — read before deploying
 
-**Prepare** — done locally, no environment needed.
-Design the architecture, author all manifests and automation, curate data,
-and write the deploy sequence before requesting an environment.
-Local tools (Ollama, iLab) can be used to validate logic where possible.
+This use case was originally designed assuming a ROSA cluster with full
+AWS IAM access (Terraform-managed credentials, GitOps-managed MinIO via
+its upstream Operator). The first live deployment was on an **RHDP
+sandbox** environment, which has different constraints:
 
-**Deploy** — target: environment usable in under 15 minutes.
-All resources deploy declaratively. No manual dashboard clicks.
-Follow the deploy steps in each use case README in order.
+- **No AWS credentials available** — RHDP provides OpenShift access only.
+  Terraform and AWS SSM are not used. Skip the `terraform/` directory
+  entirely for RHDP-style environments.
+- **The certified OLM catalog only offers MinIO AIStor**, not the
+  open-source MinIO Operator. AIStor uses a different CRD and operational
+  model. Rather than adopt it, MinIO is deployed as a **plain Kubernetes
+  Deployment** (`minio/tenant/tenant.yaml` — name kept for continuity,
+  content is a standard Deployment/Service/PVC/Route, not an operator CR).
+- **GitOps (Argo CD) was not used** for the same reason — once the
+  operator path was abandoned, there was nothing left for GitOps to
+  manage that a direct `oc apply` doesn't handle equally well. The
+  `gitops/` directory is kept for environments where the upstream MinIO
+  Operator _is_ available and Argo CD is preferred, but is not part of
+  the validated deploy path below.
 
-**Execute** — run the use case, validate outputs, record evidence.
-This is the only phase that requires a live environment.
-Demo scripts and queries are prepared in advance.
+If you're deploying on a full ROSA environment with AWS IAM access and
+the open-source MinIO Operator available, the original Terraform/GitOps
+path may still be viable — but it has not been tested end-to-end. The
+steps below are the **confirmed-working path**.
 
-**Capture** — export notebooks, commit all changes, take screenshots,
-then release the environment.
-The repo reflects the completed state of the work.
+---
 
-### Tooling rationale
+## Infrastructure
 
-Each tool in this repo is used for what it is actually good at:
+### GPU
 
-| Tool | Role |
-|---|---|
-| Terraform | Cloud infrastructure prerequisites outside the cluster |
-| OpenShift GitOps / Argo CD | Declarative cluster state — operators and tenants |
-| Kubernetes / RHOAI manifests | Platform resources — namespaces, workbenches, model serving |
-| Ansible | Procedural post-deploy tasks — bucket seeding, credential configuration |
-| Jupyter notebooks | Application layer — data pipelines and model interaction |
+NVIDIA L4 Tensor Core (24GB VRAM), AWS `g6.xlarge`. Confirmed node label:
+
+    nvidia.com/gpu.product=NVIDIA-L4
+
+Verify on your cluster before deploying:
+
+    oc get nodes -o json | jq -r '.items[].metadata.labels["nvidia.com/gpu.product"]' | grep -v null
+
+Update the `nodeSelector` in `manifests/04-inference-service.yaml` if your
+cluster reports a different value.
+
+### Model serving image
+
+**`registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5`** — Red Hat AI
+Inference Server. This requires `registry.redhat.io` to be reachable and
+authenticated, which is normally already configured via the cluster's
+global pull secret (RHOAI itself pulls from this registry). Verify:
+
+    oc get secret/pull-secret -n openshift-config \
+      -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d \
+      | grep -o '"registry.redhat.io"'
+
+The original design used a community `quay.io/rh-aiservices-bu` image;
+that tag no longer exists. RHAIIS is also the better choice for a
+regulated-industry demo narrative — it's a named, supported Red Hat
+product rather than a community image.
+
+### Object storage — MinIO
+
+Self-hosted, deployed as a plain Deployment (see Deployment notes above).
+Reachable via an OpenShift Route for both the S3 API and the web console.
+Four buckets: `models`, `documents`, `embeddings`, `pipelines`.
+
+### Vector store — Milvus
+
+Milvus standalone (single pod), 10Gi PVC. Unchanged from original design,
+confirmed working as-is.
 
 ---
 
 ## Prerequisites
 
-These tools must be available on your local machine before working with any use case.
-Use case-specific prerequisites are documented in each use case README.
+- `oc` CLI authenticated to the target cluster
+- `mc` — MinIO client. **On macOS, verify this is genuinely the MinIO
+  client and not Midnight Commander** — both install a binary named `mc`
+  via Homebrew. Confirm with `mc --version`; it should report a MinIO
+  `RELEASE.*` version string, not `GNU Midnight Commander`.
+- `hf` CLI (not `huggingface-cli` — deprecated and non-functional):
 
-### Required
+      pip install -U huggingface_hub[cli]
 
-- `oc` CLI — authenticated to the target OpenShift cluster
-- `git` — for cloning and committing
-- `terraform` >= 1.6.0
-- `ansible` with `community.aws` collection
-- `aws` CLI — configured with sufficient permissions for the target account
-- `envsubst` — for substituting environment variables into manifests (usually pre-installed on macOS/Linux)
-
-### Required for use case 01
-
-- `mc` — MinIO client, for post-deploy bucket operations
-- `huggingface-cli` — for downloading Granite model weights
-- A HuggingFace account and token with access to `ibm-granite/granite-3.1-8b-instruct`
-
-### Install on macOS
-
-    brew install openshift-cli terraform ansible awscli minio/stable/mc
-    pip install huggingface_hub[cli]
+- A HuggingFace token with access to `ibm-granite/granite-3.1-8b-instruct`
+- Two or more regulatory PDFs downloaded to `data/raw/` — see
+  `data/README.md`. **Verify downloads are genuine PDFs before seeding**:
+  some regulator sites (e.g. RBNZ) return bot-detection HTML challenge
+  pages to `curl` requests, which silently save as `.pdf`-named HTML
+  files. Always check with `file *.pdf` before uploading.
+- `ansible` (no AWS collection needed for the RHDP path)
 
 ---
 
-## Credential management
+## Deploy (confirmed-working path, RHDP-style environment)
 
-No credentials are ever committed to this repo.
+### Step 1 — Namespace and RHOAI dashboard visibility
 
-Manifests that require credentials use `envsubst` substitution and are applied
-with environment variables set in the shell session. See the deploy steps in
-each use case README for the exact commands.
+    oc apply -f manifests/00-namespace.yaml
+    oc label namespace sovereign-rag opendatahub.io/dashboard=true
 
-AWS credentials for Ansible are stored in AWS SSM Parameter Store and
-retrieved at runtime. Terraform provisions the SSM parameters as part of the
-bootstrap step.
+### Step 2 — Deploy MinIO
 
-The `.gitignore` at the repo root excludes:
+    oc apply -f minio/tenant/tenant-secret.yaml   # set MINIO_ACCESS_KEY / MINIO_SECRET_KEY via envsubst — see file header
+    oc apply -f minio/tenant/tenant.yaml
+    oc expose svc minio --port=9000 --name=minio-api -n sovereign-rag
+    oc patch route minio-api -n sovereign-rag --type merge -p '{"spec":{"tls":{"termination":"edge"}}}'
 
-- `.env` files
-- `*.tfvars` files
-- Any file matching `*-credentials.yaml` or `*-secret.yaml`
-- Model weight files (`.safetensors`, `.bin`, `.gguf`, `.pt`)
-- Raw PDF documents (`data/raw/`)
+Confirm it's running:
 
-If you believe a credential has been accidentally committed, rotate it
-immediately — do not simply delete it from the repo history without also
-rotating the credential.
+    oc get pods -n sovereign-rag -l app=minio
+
+### Step 3 — Create buckets
+
+    MINIO_API_ROUTE=$(oc get route minio-api -n sovereign-rag -o jsonpath='{.spec.host}')
+    mc alias set sovereign-rag https://$MINIO_API_ROUTE minio-admin <your-secret-key>
+    mc mb sovereign-rag/models
+    mc mb sovereign-rag/documents
+    mc mb sovereign-rag/embeddings
+    mc mb sovereign-rag/pipelines
+
+### Step 4 — Data connection secret and ServiceAccount
+
+    MINIO_ACCESS_KEY=minio-admin \
+    MINIO_SECRET_KEY=<your-secret-key> \
+    MINIO_API_ROUTE=$MINIO_API_ROUTE \
+      envsubst < manifests/06-data-connection.yaml | oc apply -f -
+
+    oc apply -f manifests/07-serviceaccount.yaml
+
+### Step 5 — Seed MinIO (model + documents)
+
+    cd ansible/
+    MINIO_ACCESS_KEY=minio-admin \
+    MINIO_SECRET_KEY=<your-secret-key> \
+    MINIO_ENDPOINT="https://$MINIO_API_ROUTE" \
+    HF_TOKEN=<your-hf-token> \
+      ansible-playbook -i inventory.yaml configure-minio.yaml
+
+This downloads ~15GiB of model weights — allow several minutes. Verify:
+
+    mc du sovereign-rag/models/granite-3.1-8b-instruct
+    mc ls sovereign-rag/documents
+
+### Step 6 — Deploy Milvus
+
+    cd ../manifests/
+    oc apply -f 02-milvus.yaml
+    oc get pods -n sovereign-rag -l app=milvus -w
+
+### Step 7 — Deploy the ServingRuntime and InferenceService
+
+    oc apply -f 03-model-serving-runtime.yaml
+    oc apply -f 04-inference-service.yaml
+    oc get inferenceservice granite-instruct -n sovereign-rag -w
+
+Wait for `READY: True`. The model load itself (init container pulling
+~15GiB from MinIO, then vLLM loading into GPU memory) takes roughly
+3-5 minutes total.
+
+### Step 8 — Smoke test
+
+    POD=$(oc get pods -n sovereign-rag -l serving.kserve.io/inferenceservice=granite-instruct -o jsonpath='{.items[0].metadata.name}')
+    oc port-forward -n sovereign-rag $POD 8081:8080
+
+In a separate terminal:
+
+    curl -s http://localhost:8081/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{"model": "/mnt/models", "messages": [{"role": "user", "content": "What is capital adequacy in banking, in one sentence?"}], "max_tokens": 100}' \
+      | python3 -m json.tool
+
+A coherent, on-topic answer confirms the model serving layer is fully
+working before you move on to the workbench.
+
+### Step 9 — Deploy the Workbench and run notebooks
+
+    oc apply -f manifests/05-workbench.yaml
+
+Follow `notebooks/WORKBENCH-SETUP.md` for environment variable
+configuration, then run `01-ingest-and-embed.ipynb` followed by
+`02-rag-query.ipynb`.
+
+**Note:** `WORKBENCH-SETUP.md` is still being updated to reflect
+RawDeployment mode (internal service URL, no bearer token required,
+rather than the original Serverless/Knative assumptions). Check
+`DEPLOYMENT-LOG-2026-06-30.md` for the confirmed working endpoint values
+in the meantime.
 
 ---
 
-## GPU and infrastructure
+## Teardown
 
-Use cases in this repo are developed and tested against:
+    oc delete namespace sovereign-rag
 
-- **Platform** — Red Hat OpenShift AI (RHOAI) on ROSA (AWS)
-- **GPU** — NVIDIA L4 Tensor Core (24GB VRAM)
-- **Instance family** — AWS `g6` series
-
-Manifests include node selectors and tolerations for the NVIDIA L4.
-If your environment uses a different GPU, verify the node label:
-
-    oc get nodes -o json | jq '.items[].metadata.labels' | grep nvidia
-
-Update the `nodeSelector` in the relevant InferenceService manifest
-to match your cluster's reported label before deploying.
+All resources are namespace-scoped. One command cleans everything created
+in this deploy path. (Terraform/GitOps teardown steps don't apply since
+those layers weren't used.)
 
 ---
 
-## Contributing and extending
+## Known issues / things to verify on a new environment
 
-This repo is structured to make it straightforward to add new use cases.
-To add a new use case:
-
-1. Create a new numbered directory following the existing naming convention
-2. Copy the directory structure from an existing use case as a starting point
-3. Write the use case README before writing any code
-4. Follow the four-phase lifecycle — Prepare first, deploy second
-5. Update the use cases table in this README
+- [ ] GPU node label — confirm `NVIDIA-L4` matches your cluster
+- [ ] `registry.redhat.io` reachable and authenticated via the cluster pull secret
+- [ ] MinIO Operator catalog contents — if the open-source Operator
+      _is_ available on your cluster (not AIStor), the original
+      GitOps/Tenant-CR path may be preferable; not validated here
+- [ ] AWS credentials — if available (full ROSA, not RHDP), the
+      Terraform/SSM path can be used instead of local environment
+      variables; not validated here
+- [ ] `oc port-forward svc/granite-instruct-predictor 8081:80` failed
+      with a connection error despite correct Service config
+      (`targetPort: 8080`) — forwarding directly to the pod worked as
+      a workaround. Worth re-testing the Service-based forward; may be
+      an RHDP networking quirk rather than a manifest issue.
 
 ---
 
-## References
+## Demo narrative
 
-- [Red Hat OpenShift AI documentation](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed)
-- [AI on OpenShift community hub](https://ai-on-openshift.io)
-- [MinIO Operator documentation](https://min.io/docs/minio/kubernetes/upstream/)
-- [Granite model family — HuggingFace](https://huggingface.co/ibm-granite)
-- [vLLM documentation](https://docs.vllm.ai)
-- [Milvus documentation](https://milvus.io/docs)
+_To be developed once notebooks are validated end-to-end._
