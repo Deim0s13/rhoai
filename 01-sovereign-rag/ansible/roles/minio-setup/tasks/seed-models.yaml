@@ -15,11 +15,20 @@
 #           HF_TOKEN set if the model requires authentication
 
 - name: Check if model already seeded
+  # FIXED: `mc ls` returns rc=0 even when the prefix has no objects —
+  # MinIO does not treat "nothing found" as a failure. Checking rc alone
+  # always evaluated to "already seeded" and silently skipped the
+  # download on every run, regardless of whether the model existed.
+  # Now checking stdout content instead of exit code.
   ansible.builtin.command: >
     mc ls sovereign-rag/models/granite-3.1-8b-instruct
   register: model_check
   failed_when: false
   changed_when: false
+
+- name: Determine if model is actually present
+  ansible.builtin.set_fact:
+    model_already_seeded: "{{ model_check.stdout | trim | length > 0 }}"
 
 - name: Download Granite 3.1 8B Instruct from HuggingFace
   ansible.builtin.command: >
@@ -28,7 +37,7 @@
     --local-dir /tmp/granite-3.1-8b-instruct
   environment:
     HF_TOKEN: "{{ hf_token }}"
-  when: model_check.rc != 0
+  when: not model_already_seeded
   register: model_download
 
 - name: Verify the download actually produced files
@@ -36,12 +45,8 @@
     paths: /tmp/granite-3.1-8b-instruct
     patterns: "*"
   register: downloaded_files
-  when: model_check.rc != 0
-  failed_when: model_check.rc != 0 and downloaded_files.matched == 0
-  # Explicit failure here — rather than silently proceeding to an empty
-  # upload — is what would have caught the huggingface-cli deprecation
-  # issue immediately instead of surfacing three steps later as a
-  # confusing "No model found" error inside the InferenceService pod.
+  when: not model_already_seeded
+  failed_when: not model_already_seeded and downloaded_files.matched == 0
 
 - name: Upload model weights to MinIO
   ansible.builtin.command: >
