@@ -1,28 +1,38 @@
 # 06-data-connection.yaml
-# Secret that RHOAI uses to connect to your S3-compatible object store.
-# Used both for model storage (InferenceService) and optionally for
-# storing ingested document chunks.
+# Secret that KServe uses to connect to the model storage backend.
 #
-# DO NOT commit real credentials. Use a .env file locally and substitute
-# with `envsubst` or seal with Sealed Secrets / Vault before committing.
+# UPDATED: originally written for native AWS S3. This environment uses
+# self-hosted MinIO (deployed via manifests/02-milvus.yaml's sibling
+# pattern — see minio/tenant/tenant.yaml), so the annotations below
+# tell KServe's S3 storage initializer to use a custom endpoint rather
+# than assuming AWS.
 #
-# Apply with:
-#   AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy envsubst \
-#     < manifests/06-data-connection.yaml | oc apply -f -
+# DO NOT commit real credentials. Apply with envsubst:
+#   MINIO_ACCESS_KEY=minio-admin \
+#   MINIO_SECRET_KEY=minio-password-2024 \
+#   MINIO_API_ROUTE=$(oc get route minio-api -n sovereign-rag -o jsonpath='{.spec.host}') \
+#     envsubst < manifests/06-data-connection.yaml | oc apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
-  name: s3-data-connection
+  name: minio-data-connection
   namespace: sovereign-rag
   labels:
     app.kubernetes.io/part-of: rhoai-presales-lab
   annotations:
     opendatahub.io/connection-type: s3
-    openshift.io/display-name: "S3 Data Connection"
+    openshift.io/display-name: "MinIO Data Connection"
+    # These annotations are what KServe's S3 storage initializer reads
+    # to know it's talking to a non-AWS S3-compatible endpoint.
+    serving.kserve.io/s3-endpoint: "${MINIO_API_ROUTE}"
+    serving.kserve.io/s3-usehttps: "1"
+    serving.kserve.io/s3-region: "us-east-2"
+    serving.kserve.io/s3-verifyssl: "1"
 type: Opaque
 stringData:
-  AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
-  AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
-  AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION}"
-  AWS_S3_BUCKET: "${AWS_S3_BUCKET}"
-  AWS_S3_ENDPOINT: "${AWS_S3_ENDPOINT}"
+  AWS_ACCESS_KEY_ID: "${MINIO_ACCESS_KEY}"
+  AWS_SECRET_ACCESS_KEY: "${MINIO_SECRET_KEY}"
+  AWS_DEFAULT_REGION: "us-east-2"
+  AWS_S3_ENDPOINT: "https://${MINIO_API_ROUTE}"
+  AWS_S3_USE_HTTPS: "1"
+  AWS_S3_VERIFY_SSL: "1"
