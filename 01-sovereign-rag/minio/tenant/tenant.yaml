@@ -1,62 +1,113 @@
 # tenant.yaml
-# MinIO Tenant definition — managed by the MinIO Operator.
-# Sized for a demo/PoC environment on NVIDIA L4-backed RHOAI.
+# MinIO deployed directly as a Deployment — no operator dependency.
+# Suitable for demo/PoC scale. Single instance, no erasure coding.
 #
-# Storage sizing rationale:
-#   Granite 3.1 8B weights (bf16):  ~16Gi
-#   Regulatory PDFs + embeddings:    ~2Gi
-#   Pipeline artifacts / headroom:   ~12Gi
-#   Total per volume:                ~30Gi across 1 server, 1 volume
-#
-# For a demo, single server + single drive is sufficient.
-# Production would use erasure coding across multiple servers and drives.
-apiVersion: minio.min.io/v2
-kind: Tenant
+# NOTE: originally designed to use the open-source MinIO Operator.
+# Switched to direct deployment after discovering the certified catalog
+# only offers MinIO AIStor, which uses an incompatible CRD (ObjectStore)
+# and a different operational model. Direct deployment avoids that
+# dependency entirely and is simpler for a disposable demo environment.
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: sovereign-rag-minio
+  name: minio
   namespace: sovereign-rag
   labels:
+    app: minio
     app.kubernetes.io/part-of: rhoai-presales-lab
 spec:
-  image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z
-  credsSecret:
-    name: minio-tenant-credentials
-
-  pools:
-    - name: pool-0
-      servers: 1
-      volumesPerServer: 1
-      volumeClaimTemplate:
-        metadata:
-          name: minio-data
-        spec:
-          accessModes:
-            - ReadWriteOnce
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          envFrom:
+            - secretRef:
+                name: minio-tenant-credentials
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-tenant-credentials
+                  key: accesskey
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-tenant-credentials
+                  key: secretkey
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
           resources:
             requests:
-              storage: 50Gi    # adjust if your storage class has constraints
-      resources:
-        requests:
-          cpu: "500m"
-          memory: "1Gi"
-        limits:
-          cpu: "2"
-          memory: "4Gi"
-
-  mountPath: /export
-
-  # Expose MinIO console via OpenShift Route
-  # The operator creates a Service; the Route below exposes it externally
-  requestAutoCert: false    # set true if you have cert-manager configured
-
-  features:
-    bucketDNS: false        # not needed for demo scale
-
-  buckets:
-    - name: models          # Granite model weights
-    - name: documents       # raw regulatory PDFs
-    - name: embeddings      # processed chunks (optional — Milvus holds vectors)
-    - name: pipelines       # RHOAI pipeline artifacts
-
-  users:
-    - name: minio-tenant-credentials
+              memory: "1Gi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: minio-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data-pvc
+  namespace: sovereign-rag
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: sovereign-rag
+  labels:
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - port: 9000
+      targetPort: 9000
+      name: api
+    - port: 9001
+      targetPort: 9001
+      name: console
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: minio-console
+  namespace: sovereign-rag
+spec:
+  to:
+    kind: Service
+    name: minio
+  port:
+    targetPort: console
+  tls:
+    termination: edge
