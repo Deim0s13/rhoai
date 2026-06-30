@@ -12,7 +12,7 @@ metadata:
     app.kubernetes.io/part-of: rhoai-presales-lab
 spec:
   channel: stable
-  name: minio-object-store-operator # confirmed name from certified catalog
+  name: minio-object-store-operator
   source: certified-operators
   sourceNamespace: openshift-marketplace
   installPlanApproval: Automatic
@@ -22,6 +22,4 @@ kind: OperatorGroup
 metadata:
   name: minio-operator-group
   namespace: minio-operator
-spec:
-  targetNamespaces:
-    - minio-operator
+spec: {} # empty spec = AllNamespaces mode
