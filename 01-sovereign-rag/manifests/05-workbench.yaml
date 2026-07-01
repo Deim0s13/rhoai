@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: sovereign-rag-workbench
-          image: quay.io/opendatahub/notebooks:jupyter-datascience-ubi9-python-3.11-2024b
+          image: registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9@sha256:128879eb003be1d01c721bba289d2fce6adf74695c738247076704fd461a3fc8
           resources:
             requests:
               cpu: "1"
