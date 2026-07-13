@@ -99,8 +99,8 @@ Notes on the layers:
 ## Classification data flow
 
 Every classification follows the same path and emits the same evidence. The span
-structure is a design commitment shared with a companion control-plane
-demonstration, so evidence from both is structurally identical.
+structure is a documented design commitment of this use case, shaped so its
+evidence reads naturally alongside control-plane style demonstrations.
 
 ```mermaid
 sequenceDiagram
@@ -159,13 +159,13 @@ Three boundaries matter, and the demo makes each one observable:
 Honest simplifications in the demo build, stated so they are not mistaken for the
 recommended production shape:
 
-| Area | Conceptual model | Demo build | Rationale |
-|---|---|---|---|
-| Model tier | Self-hosted and/or remote frontier model per workload economics | Single self-hosted 8B-class model; second local backend used to demonstrate routing | Removes external dependencies; keeps the demo deterministic and rebuildable anywhere |
-| System of record | Organisation's complaints/GRC platform via defined write-back contract | Demo store plus thin UI | Integration is engagement-specific; the write-back contract is documented, not simulated |
-| Ingestion trigger | Event-driven from source systems | S3 bucket watch with batch backfill | Same pipeline shape, simpler trigger |
-| Scale | Distributed ingestion (Ray) where volume warrants | Single-node pipeline | Demo data volumes do not justify distribution; the scaling path is documented |
-| Review queue | Workflow integration with case management | Simple queue view in the demo UI | The routing decision and its evidence are the demonstrated control, not the workflow tooling |
+| Area              | Conceptual model                                                       | Demo build                                                                          | Rationale                                                                                    |
+| ----------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Model tier        | Self-hosted and/or remote frontier model per workload economics        | Single self-hosted 8B-class model; second local backend used to demonstrate routing | Removes external dependencies; keeps the demo deterministic and rebuildable anywhere         |
+| System of record  | Organisation's complaints/GRC platform via defined write-back contract | Demo store plus thin UI                                                             | Integration is engagement-specific; the write-back contract is documented, not simulated     |
+| Ingestion trigger | Event-driven from source systems                                       | S3 bucket watch with batch backfill                                                 | Same pipeline shape, simpler trigger                                                         |
+| Scale             | Distributed ingestion (Ray) where volume warrants                      | Single-node pipeline                                                                | Demo data volumes do not justify distribution; the scaling path is documented                |
+| Review queue      | Workflow integration with case management                              | Simple queue view in the demo UI                                                    | The routing decision and its evidence are the demonstrated control, not the workflow tooling |
 
 ## Open decisions
 
@@ -176,20 +176,26 @@ Recorded here until resolved; each will close with an ADR.
    catalog item provisions. Day-one validation task, and the largest potential
    source of drift from this document. Prior lab work validated against RHOAI
    2.25.x; this design assumes newer platform capabilities that must be confirmed.
-2. **Tracing and evaluation alignment.** The four-stage span convention is agreed
-   in principle with a companion control-plane demonstration. Exact span naming,
-   MLflow experiment structure and where evaluation records land must be aligned
-   with that build before pipeline code is written. Pipelines and app code are
-   deliberately held until this is settled.
+2. **Tracing and evaluation conventions.** The four-stage span convention is
+   defined and owned within this use case. Span naming, MLflow experiment
+   structure and evaluation record locations will be settled during platform
+   validation and recorded in an ADR. The convention is deliberately shaped so
+   that evidence reads naturally alongside a control-plane style demonstration,
+   keeping later convergence with parallel work low-cost, but no external
+   alignment is a prerequisite. Pipeline code is held only on platform
+   validation, not on any external conversation.
 3. **Gateway layer composition.** Whether application registration, quotas and
    credential revocation are demonstrated through the platform's
-   models-as-a-service capability or a composed gateway depends on what the
-   provisioned environment offers and what the companion demonstration has
-   standardised on. Inherit, do not invent.
+   models-as-a-service capability or a composed gateway is decided by what the
+   provisioned environment actually offers, validated on day one and recorded
+   in an ADR. Prefer platform-native capability over composition wherever the
+   provisioned version supports it.
 4. **Milvus integration path.** Llama Stack's Milvus integration (inline vs
    remote) to be validated in the target environment, including whether the
    dependency conflict recorded in Use Case 01 (pymilvus/marshmallow) is
    sidestepped by consuming Milvus through Llama Stack rather than directly.
-5. **Guardrail policy definitions.** Shared policy definitions with the companion
-   demonstration: adopt theirs verbatim if they exist, contribute ours if not.
-   Either way, one definition, two consumers.
+5. **Guardrail policy definitions.** Authored within this use case as
+   self-contained, versioned definitions, kept deliberately portable: defined at
+   platform level, separate from the application, and consumable by any workload
+   on the cluster. If convergence with parallel control-plane work happens later,
+   portable definitions make that a merge, not a rewrite.
