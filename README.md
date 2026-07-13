@@ -28,11 +28,11 @@ things at once:
 
 ## Use cases
 
-| # | Use case | Pattern | Status | What it adds to the lab |
-|---|---|---|---|---|
-| 01 | Sovereign RAG | Air-gapped retrieval-augmented generation | Substantially complete, validated live | Platform foundations: model serving (vLLM / KServe RawDeployment), Milvus, MinIO, GitOps delivery, Ansible seeding, notebook-based RAG |
-| 02 | Complaint Intelligence | Governed RAG classification (system-to-LLM) | In design | Llama Stack unified API, TrustyAI guardrails, Docling ingestion, structured classification with versioned, citation-linked output, controls-to-capability mapping |
-| 03 to 05 | To be scoped | | Planned | Each future use case is chosen to introduce capabilities the lab has not yet exercised |
+| #        | Use case               | Pattern                                     | Status                                 | What it adds to the lab                                                                                                                                           |
+| -------- | ---------------------- | ------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 01       | Sovereign RAG          | Air-gapped retrieval-augmented generation   | Substantially complete, validated live | Platform foundations: model serving (vLLM / KServe RawDeployment), Milvus, MinIO, GitOps delivery, Ansible seeding, notebook-based RAG                            |
+| 02       | Complaint Intelligence | Governed RAG classification (system-to-LLM) | In design                              | Llama Stack unified API, TrustyAI guardrails, Docling ingestion, structured classification with versioned, citation-linked output, controls-to-capability mapping |
+| 03 to 05 | To be scoped           |                                             | Planned                                | Each future use case is chosen to introduce capabilities the lab has not yet exercised                                                                            |
 
 Each use case has its own README covering scope, architecture, build steps and
 validated learnings. Start there:
