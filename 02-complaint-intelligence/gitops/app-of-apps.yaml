@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: https://github.com/Deim0s13/rhoai.git
     targetRevision: main
-    path: use-cases/02-complaint-intelligence/gitops/apps
+    path: 02-complaint-intelligence/gitops/apps
   destination:
     server: https://kubernetes.default.svc
     namespace: openshift-gitops

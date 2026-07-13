@@ -1,20 +1,31 @@
-# RawDeployment mode: UC01 learning, Serverless requires Service Mesh
-# membership that RHDP environments do not reliably provide.
+# Proven pattern carried from UC01: RawDeployment (Serverless requires Service
+# Mesh member roll enrolment RHDP namespaces don't have), no args here (see
+# ServingRuntime), explicit GPU scheduling.
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
   name: granite-3-3-8b-instruct
   namespace: complaint-intelligence
-  annotations:
-    serving.kserve.io/deploymentMode: RawDeployment
   labels:
-    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: rhoai-presales-lab
+  annotations:
+    serving.kserve.io/deploymentMode: "RawDeployment"
 spec:
   predictor:
     serviceAccountName: model-serving-sa
+    # VALIDATE: GPU product label per environment (UC01 cluster: NVIDIA-L4 on g6.xlarge)
+    nodeSelector:
+      nvidia.com/gpu.product: NVIDIA-L4
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
     model:
       modelFormat:
-        name: vLLM
+        name: pytorch
       runtime: vllm-runtime
-      # VALIDATE: bucket/path must match what ansible/roles/model_fetch uploads
-      storageUri: s3://models/granite-3.3-8b-instruct
+      # Bucket/prefix must match ansible model_fetch upload target
+      storageUri: "s3://models/granite-3.3-8b-instruct"
+      resources:
+        requests: { nvidia.com/gpu: "1" }
+        limits:   { nvidia.com/gpu: "1" }

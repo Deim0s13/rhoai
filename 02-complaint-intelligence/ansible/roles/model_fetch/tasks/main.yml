@@ -1,36 +1,53 @@
 ---
-# Download the model and upload to MinIO so KServe can pull it.
-# UC01 learnings applied: use the `hf` CLI (huggingface-cli is deprecated);
-# idempotency checks must test mc stdout, not just return code.
+# Downloads Granite 3.3 8B Instruct and uploads to MinIO for KServe.
+# UC01 learnings applied verbatim (see 01-sovereign-rag DEPLOYMENT-LOG):
+#   - `hf` CLI, not the deprecated no-op `huggingface-cli`
+#   - idempotency via mc stdout content, never exit code (mc ls returns rc=0
+#     on an empty prefix)
+#   - explicit verification after BOTH download and upload; never trust
+#     silent success on hf or mc commands
 
-- name: Check whether model already present in MinIO
-  ansible.builtin.shell: >
-    mc ls uc02/{{ model_bucket }}/{{ model_prefix }}/ 2>/dev/null | head -1
-  register: model_present
+- name: Ensure mc alias
+  ansible.builtin.command: >
+    mc alias set uc02 http://{{ minio_endpoint }} {{ minio_access_key }} {{ minio_secret_key }}
   changed_when: false
+
+- name: Ensure models bucket exists
+  ansible.builtin.command: mc mb --ignore-existing uc02/{{ model_bucket }}
+  changed_when: false
+
+- name: Check if model already seeded
+  ansible.builtin.command: mc ls uc02/{{ model_bucket }}/{{ model_prefix }}
+  register: model_check
   failed_when: false
+  changed_when: false
 
-- name: Fetch and upload model
-  when: model_present.stdout | length == 0
-  block:
-    - name: Ensure mc alias
-      ansible.builtin.shell: >
-        mc alias set uc02 http://{{ minio_endpoint }}
-        {{ minio_user }} {{ minio_password }}
-      changed_when: false
+- name: Determine if model is actually present
+  ansible.builtin.set_fact:
+    model_already_seeded: "{{ model_check.stdout | trim | length > 0 }}"
 
-    - name: Ensure bucket exists
-      ansible.builtin.shell: mc mb --ignore-existing uc02/{{ model_bucket }}
-      changed_when: false
+- name: Download {{ model_repo }} from Hugging Face
+  ansible.builtin.command: >
+    hf download {{ model_repo }} --local-dir /tmp/{{ model_prefix }}
+  environment:
+    HF_TOKEN: "{{ hf_token }}"
+  when: not model_already_seeded
 
-    - name: Download model with hf CLI
-      ansible.builtin.shell: >
-        hf download {{ model_repo }}
-        --local-dir /tmp/{{ model_prefix }}
-      args:
-        creates: "/tmp/{{ model_prefix }}/config.json"
+- name: Verify the download actually produced files
+  ansible.builtin.find:
+    paths: "/tmp/{{ model_prefix }}"
+    patterns: "*.safetensors"
+  register: downloaded_files
+  when: not model_already_seeded
+  failed_when: not model_already_seeded and downloaded_files.matched == 0
 
-    - name: Upload to MinIO
-      ansible.builtin.shell: >
-        mc cp --recursive /tmp/{{ model_prefix }}/
-        uc02/{{ model_bucket }}/{{ model_prefix }}/
+- name: Upload model to MinIO
+  ansible.builtin.command: >
+    mc cp --recursive /tmp/{{ model_prefix }}/ uc02/{{ model_bucket }}/{{ model_prefix }}/
+  when: not model_already_seeded
+
+- name: Verify the upload actually landed
+  ansible.builtin.command: mc ls uc02/{{ model_bucket }}/{{ model_prefix }}
+  register: upload_check
+  changed_when: false
+  failed_when: upload_check.stdout | trim | length == 0

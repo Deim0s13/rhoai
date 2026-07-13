@@ -1,33 +1,45 @@
-# UC01 learning: the ServingRuntime is the single source of truth for vLLM args.
-# Do not duplicate args on the InferenceService; KServe merges them and the
-# result is order-dependent surprise.
+# Proven pattern carried from UC01 (see 01-sovereign-rag/manifests/03-*.yaml
+# and DEPLOYMENT-LOG-2026-06-30.md):
+#   - RHAIIS image, pinned tag (community Quay tags rot; :latest is a trap)
+#   - explicit command ["vllm","serve"] with POSITIONAL /mnt/models: KServe
+#     does NOT auto-inject the model path for this runtime/KServe combination
+#   - this file is the SINGLE source of truth for all vLLM args; the
+#     InferenceService must not set any args (KServe merges both lists into
+#     conflicting flags the RHAIIS CLI rejects)
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:
   name: vllm-runtime
   namespace: complaint-intelligence
   labels:
-    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: rhoai-presales-lab
+  annotations:
+    openshift.io/display-name: "vLLM Runtime (Red Hat AI Inference Server)"
 spec:
-  supportedModelFormats:
-    - name: vLLM
-      autoSelect: true
   multiModel: false
+  supportedModelFormats:
+    - name: pytorch
+      version: "1"
+      autoSelect: true
   containers:
     - name: kserve-container
-      # VALIDATE: confirm current RHAIIS vLLM image tag on day one (UC01: tags go stale)
-      image: registry.redhat.io/rhaiis/vllm-cuda-rhel9:latest
+      # VALIDATE: 3.2.5 was current at UC01 validation (2026-06-30); confirm on day one
+      image: registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5
+      command: ["vllm", "serve"]
       args:
-        - --model=/mnt/models
-        - --served-model-name=granite-3-3-8b-instruct
-        - --max-model-len=8192
-        - --gpu-memory-utilization=0.90
-      env:
-        - name: HF_HOME
-          value: /tmp/hf_home
+        - "/mnt/models"
+        - "--port=8080"
+        - "--dtype=bfloat16"
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.85"
+        # VALIDATE: friendly model name for Llama Stack / demo API calls.
+        # UC01's proven baseline used no served-model-name (model = "/mnt/models"
+        # in API calls). If this flag misbehaves, remove it and set
+        # INFERENCE_MODEL=/mnt/models in the Llama Stack secret instead.
+        - "--served-model-name=granite-3-3-8b-instruct"
       ports:
         - containerPort: 8080
           protocol: TCP
       resources:
-        requests: { cpu: "2", memory: 16Gi, nvidia.com/gpu: "1" }
-        limits:   { cpu: "6", memory: 24Gi, nvidia.com/gpu: "1" }
+        requests: { nvidia.com/gpu: "1" }
+        limits:   { nvidia.com/gpu: "1" }

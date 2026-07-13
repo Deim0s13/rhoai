@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/Deim0s13/rhoai.git
     targetRevision: main
-    path: use-cases/02-complaint-intelligence/manifests/storage
+    path: 02-complaint-intelligence/manifests/storage
   destination:
     server: https://kubernetes.default.svc
     namespace: complaint-intelligence

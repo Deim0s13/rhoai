@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/minio:latest   # VALIDATE: pin to current digest on day one (UC01: tags go stale)
-          args: ["server", "/data", "--console-address", ":9090"]
+          image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z  # UC01-proven tag; VALIDATE currency periodically
+          args: ["server", "/data", "--console-address", ":9001"]
           envFrom:
             - secretRef: { name: minio-credentials }
           ports:

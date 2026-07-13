@@ -68,7 +68,11 @@ staged; one where it hands hard cases to a human reads as governable.
   fields.
 - A subset (approximately 20 records) rendered as PDF letters and email exports
   to exercise the Docling parsing path; the ingestion pipeline must handle both
-  arrival formats identically.
+  arrival formats identically. Note: the repo `.gitignore` excludes `*.pdf` by
+  design (established in Use Case 01: raw documents are not committed), so the
+  PDFs are generated at seed time by a script from the JSONL fixtures rather
+  than stored in Git. The generation script is the versioned artefact; the PDFs
+  are build outputs.
 
 ## Generation approach
 

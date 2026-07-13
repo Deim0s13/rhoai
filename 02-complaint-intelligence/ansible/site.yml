@@ -1,7 +1,7 @@
 ---
-# Procedural post-deploy seeding. Run after GitOps has converged.
-# Usage:
-#   export MINIO_ROOT_USER=... MINIO_ROOT_PASSWORD=...
+# Procedural post-deploy seeding. Run after GitOps (or direct apply) has converged.
+# Usage (same env var names as UC01, so one export block serves both use cases):
+#   export MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... MINIO_ENDPOINT=... HF_TOKEN=...
 #   ansible-playbook ansible/site.yml
 - name: Seed UC02 environment
   hosts: localhost
@@ -9,9 +9,10 @@
   gather_facts: false
   vars:
     namespace: complaint-intelligence
-    minio_endpoint: "{{ lookup('env', 'MINIO_ENDPOINT') | default('localhost:9000', true) }}"
-    minio_user: "{{ lookup('env', 'MINIO_ROOT_USER') }}"
-    minio_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') }}"
+    minio_endpoint: "{{ lookup('env', 'MINIO_ENDPOINT') }}"
+    minio_access_key: "{{ lookup('env', 'MINIO_ACCESS_KEY') }}"
+    minio_secret_key: "{{ lookup('env', 'MINIO_SECRET_KEY') }}"
+    hf_token: "{{ lookup('env', 'HF_TOKEN') }}"
     model_repo: ibm-granite/granite-3.3-8b-instruct
     model_bucket: models
     model_prefix: granite-3.3-8b-instruct
