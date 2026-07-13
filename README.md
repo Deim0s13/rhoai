@@ -79,9 +79,8 @@ and policy behaviour.
 ```
 rhoai/
 ├── README.md                      # this file
-├── use-cases/
-│   ├── 01-sovereign-rag/          # air-gapped RAG: foundations
-│   └── 02-complaint-intelligence/ # governed classification: controls and guardrails
+├── 01-sovereign-rag/          # air-gapped RAG: foundations
+└── 02-complaint-intelligence/ # governed classification: controls and guardrails
 └── ...                            # shared bootstrap/tooling where genuinely shared
 ```
 
