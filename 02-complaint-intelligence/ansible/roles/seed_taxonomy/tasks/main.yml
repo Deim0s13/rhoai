@@ -1,0 +1,9 @@
+---
+# Load the versioned taxonomy as a ConfigMap the pipeline and app consume.
+- name: Apply taxonomy ConfigMap from data/taxonomy/taxonomy.yaml
+  ansible.builtin.shell: >
+    oc create configmap taxonomy
+    --from-file=taxonomy.yaml={{ playbook_dir }}/../data/taxonomy/taxonomy.yaml
+    -n {{ namespace }}
+    --dry-run=client -o yaml | oc apply -f -
+  changed_when: true

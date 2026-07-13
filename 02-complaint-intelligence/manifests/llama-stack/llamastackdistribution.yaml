@@ -1,0 +1,40 @@
+# Shape grounded on the documented RHOAI 2.25 example (rh-dev distribution,
+# vLLM remote inference, inline Milvus for the demo).
+# VALIDATE on day one:
+#   - operator availability and CRD version in the provisioned RHOAI
+#   - distribution name (rh-dev) for that version
+#   - inline Milvus env expectations for that version
+apiVersion: llamastack.io/v1alpha1
+kind: LlamaStackDistribution
+metadata:
+  name: lsd-complaint-intelligence
+  namespace: complaint-intelligence
+spec:
+  replicas: 1
+  server:
+    distribution:
+      name: rh-dev
+    containerSpec:
+      resources:
+        requests: { cpu: 250m, memory: 500Mi }
+        limits:   { cpu: "2", memory: 8Gi }
+      env:
+        - name: INFERENCE_MODEL
+          valueFrom:
+            secretKeyRef: { name: llama-stack-inference, key: INFERENCE_MODEL }
+        - name: VLLM_URL
+          valueFrom:
+            secretKeyRef: { name: llama-stack-inference, key: VLLM_URL }
+        - name: VLLM_TLS_VERIFY
+          valueFrom:
+            secretKeyRef: { name: llama-stack-inference, key: VLLM_TLS_VERIFY }
+        - name: VLLM_API_TOKEN
+          valueFrom:
+            secretKeyRef: { name: llama-stack-inference, key: VLLM_API_TOKEN }
+        - name: VLLM_MAX_TOKENS
+          value: "4096"
+        # Inline Milvus (demo posture: single node, embedded)
+        - name: MILVUS_DB_PATH
+          value: /.llama/milvus.db
+    storage:
+      size: 20Gi

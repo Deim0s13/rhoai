@@ -1,0 +1,21 @@
+---
+# Procedural post-deploy seeding. Run after GitOps has converged.
+# Usage:
+#   export MINIO_ROOT_USER=... MINIO_ROOT_PASSWORD=...
+#   ansible-playbook ansible/site.yml
+- name: Seed UC02 environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    namespace: complaint-intelligence
+    minio_endpoint: "{{ lookup('env', 'MINIO_ENDPOINT') | default('localhost:9000', true) }}"
+    minio_user: "{{ lookup('env', 'MINIO_ROOT_USER') }}"
+    minio_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') }}"
+    model_repo: ibm-granite/granite-3.3-8b-instruct
+    model_bucket: models
+    model_prefix: granite-3.3-8b-instruct
+  roles:
+    - model_fetch
+    - seed_taxonomy
+    - seed_synthetic_data

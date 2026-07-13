@@ -1,0 +1,225 @@
+# Taxonomy: version 0.1.0
+#
+# Two-dimensional classification: every complaint receives exactly one theme
+# (what the customer experienced) and one root cause (why it happened).
+# Themes are customer-centric; root causes are organisation-centric. Keeping the
+# dimensions separate is deliberate: it lets theme-level reporting speak to
+# customer experience while root-cause aggregation directs remediation
+# investment.
+#
+# The definition, includes, excludes and examples fields are not documentation
+# decoration. They are retrieval content: they form part of the context given to
+# the model at classification time, and they are the primary lever for
+# classification quality with a small model. Sharpen these before reaching for a
+# bigger model.
+#
+# Versioning: this file is a released artefact. Changes bump the version, and
+# every classification output is stamped with the taxonomy version that produced
+# it. Do not edit in place against produced evidence.
+
+version: "0.1.0"
+
+themes:
+  - id: THM-01
+    name: Onboarding and account opening
+    definition: >
+      Difficulty, delay or failure experienced while becoming a customer or
+      opening an additional product, including identity verification and
+      initial setup.
+    includes:
+      - identity verification failures or repeated document requests
+      - delays between application and usable account
+      - abandoned applications due to process complexity
+    excludes:
+      - problems using an account once open (see THM-05)
+      - declined lending applications (see THM-03)
+    examples:
+      - "Asked to provide the same proof of address three times over two weeks."
+
+  - id: THM-02
+    name: Fees and charges
+    definition: >
+      Disputes about the amount, application or fairness of a fee or charge the
+      customer believes is wrong, unexpected or excessive.
+    includes:
+      - fees charged contrary to the customer's understanding
+      - duplicate or erroneous charges
+      - disputes about fee waivers or refunds
+    excludes:
+      - complaints that the fee was not explained in advance (see THM-09)
+      - interest rate or credit pricing disputes (see THM-03)
+    examples:
+      - "Charged a monthly account fee on an account advertised as fee-free."
+
+  - id: THM-03
+    name: Lending and credit decisions
+    definition: >
+      Dissatisfaction with a lending outcome, credit assessment, limit change or
+      the conduct of a credit process.
+    includes:
+      - declined applications where the customer disputes the reasoning
+      - unexplained credit limit reductions
+      - affordability assessment disputes
+    excludes:
+      - hardship arrangements on existing lending (see THM-07)
+      - collections activity (see THM-08)
+    examples:
+      - "Home loan pre-approval withdrawn a week before settlement with no explanation."
+
+  - id: THM-04
+    name: Payments and transfers
+    definition: >
+      A payment, transfer or direct debit that failed, was delayed, went to the
+      wrong place or could not be recovered.
+    includes:
+      - failed or delayed domestic and international payments
+      - direct debit dishonours the customer attributes to the bank
+      - misdirected payments and recovery attempts
+    excludes:
+      - unauthorised transactions (see THM-06)
+      - inability to make a payment because the app was down (see THM-05)
+    examples:
+      - "International transfer debited but not received after nine business days."
+
+  - id: THM-05
+    name: Digital and self-service experience
+    definition: >
+      Problems using the bank's digital channels: outages, defects, usability
+      failures or missing functionality that prevented the customer completing
+      a task themselves.
+    includes:
+      - app or online banking outages and defects
+      - lockouts and authentication loops
+      - features that fail or mislead in digital channels
+    excludes:
+      - the underlying transaction failing for non-digital reasons (see THM-04)
+      - digital fraud events (see THM-06)
+    examples:
+      - "Locked out of the app for five days; branch could not reset access."
+
+  - id: THM-06
+    name: Fraud, scams and security
+    definition: >
+      Unauthorised activity, scam events, or dissatisfaction with the bank's
+      prevention, response or reimbursement position on a security matter.
+    includes:
+      - unauthorised transactions and card fraud
+      - scam payments and the bank's response to them
+      - account takeover and credential compromise events
+    excludes:
+      - privacy complaints without a fraud element (classify by the affected
+        journey, root cause RC-06 where relevant)
+    examples:
+      - "Reported a scam within an hour; told nothing could be done to recall funds."
+
+  - id: THM-07
+    name: Financial hardship support
+    definition: >
+      The experience of seeking, receiving or being declined hardship support
+      on existing obligations.
+    includes:
+      - delayed or unresponsive hardship processes
+      - arrangements the customer says were not honoured
+      - being routed to collections while a hardship request was pending
+    excludes:
+      - the original lending decision (see THM-03)
+    examples:
+      - "Submitted a hardship application; received a default notice while waiting."
+
+  - id: THM-08
+    name: Collections and recovery
+    definition: >
+      The conduct, frequency, tone or accuracy of collections and recovery
+      activity.
+    includes:
+      - contact the customer describes as excessive or aggressive
+      - collections activity on disputed or already-settled amounts
+      - inaccurate arrears reporting to credit bureaus
+    excludes:
+      - hardship process failures (see THM-07)
+    examples:
+      - "Called daily about an arrears balance that was paid two weeks earlier."
+
+  - id: THM-09
+    name: Product disclosure and communication
+    definition: >
+      The customer was not told, was told late, or was told something misleading
+      about a product's terms, changes or conditions.
+    includes:
+      - rate or term changes without effective notice
+      - marketing or staff statements contradicted by product behaviour
+      - unclear or missing disclosure at point of sale
+    excludes:
+      - the fee itself being wrong (see THM-02)
+    examples:
+      - "Term deposit rolled over automatically; nothing I received explained it would."
+
+  - id: THM-10
+    name: Service and complaint handling
+    definition: >
+      The quality of human service or of the complaint process itself:
+      responsiveness, ownership, accuracy of information given, and being passed
+      between teams.
+    includes:
+      - unreturned calls and unanswered correspondence
+      - conflicting answers from different staff or channels
+      - complaints about how a previous complaint was handled
+    excludes:
+      - service failures whose substance belongs to another theme; classify by
+        the substantive theme where one exists
+    examples:
+      - "Third time explaining the same issue to a new person with no record of the last two."
+
+root_causes:
+  - id: RC-01
+    name: Process design gap
+    definition: >
+      The process worked as designed, and the design itself produced the poor
+      outcome: missing steps, unrealistic timeframes, or journeys that assume
+      circumstances the customer does not have.
+
+  - id: RC-02
+    name: System defect or outage
+    definition: >
+      A technology failure: defect, outage, degraded performance or data error
+      in a system the journey depends on.
+
+  - id: RC-03
+    name: Staff knowledge or execution
+    definition: >
+      The process and systems were adequate but were not followed, or staff
+      lacked the knowledge or authority to execute them correctly.
+
+  - id: RC-04
+    name: Policy or product design
+    definition: >
+      A deliberate policy or product setting produced the outcome the customer
+      objects to; changing the outcome means changing the policy.
+
+  - id: RC-05
+    name: Communication clarity
+    definition: >
+      The substantive outcome may have been correct, but what the customer was
+      told (or not told) created the gap between expectation and experience.
+
+  - id: RC-06
+    name: Third-party dependency
+    definition: >
+      The failure originated with an external party (payment scheme,
+      correspondent bank, verification provider, bureau) on which the journey
+      depends.
+
+  - id: RC-07
+    name: Timeliness and capacity
+    definition: >
+      Nothing failed except speed: queues, backlogs or resourcing meant the
+      right outcome arrived too late to be acceptable.
+
+# Classification configuration (consumed by the pipeline; versioned with the taxonomy)
+classification:
+  confidence_threshold: 0.70 # below this, route to human review
+  output_requires:
+    - theme_id
+    - root_cause_id
+    - confidence
+    - citation

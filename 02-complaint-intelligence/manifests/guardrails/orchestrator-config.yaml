@@ -1,0 +1,23 @@
+# Orchestrator config: chat generation points at the vLLM predictor; the regex
+# detector runs as the built-in sidecar (127.0.0.1:8080).
+# Regex patterns for mock PII conventions live with the fixture definitions and
+# are applied as detector configuration during seeding.
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: guardrails-orchestrator-config
+  namespace: complaint-intelligence
+data:
+  config.yaml: |
+    chat_generation:
+      service:
+        hostname: granite-3-3-8b-instruct-predictor.complaint-intelligence.svc.cluster.local
+        port: 8080
+    detectors:
+      regex:
+        type: text_contents
+        service:
+          hostname: "127.0.0.1"
+          port: 8080
+        chunker_id: whole_doc_chunker
+        default_threshold: 0.5

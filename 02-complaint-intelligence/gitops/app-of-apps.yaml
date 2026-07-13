@@ -1,0 +1,21 @@
+# Bootstrap Application: point Argo CD at this once; everything else follows.
+# VALIDATE: repoURL branch and the Argo CD namespace in the provisioned cluster
+# (openshift-gitops assumed).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: uc02-complaint-intelligence
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Deim0s13/rhoai.git
+    targetRevision: main
+    path: use-cases/02-complaint-intelligence/gitops/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openshift-gitops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

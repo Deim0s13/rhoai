@@ -1,0 +1,18 @@
+---
+# Upload the reviewed synthetic fixture set to MinIO for ingestion.
+# Held as a stub until data/synthetic/ contains the generated, reviewed set.
+- name: Check fixture set exists locally
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../data/synthetic/records.jsonl"
+  register: fixtures
+
+- name: Upload fixtures to MinIO
+  when: fixtures.stat.exists
+  ansible.builtin.shell: >
+    mc cp {{ playbook_dir }}/../data/synthetic/records.jsonl
+    uc02/complaints/incoming/records.jsonl
+
+- name: Note when fixtures are absent
+  when: not fixtures.stat.exists
+  ansible.builtin.debug:
+    msg: "No fixture set found; generate and review synthetic data first."

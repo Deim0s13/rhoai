@@ -1,0 +1,20 @@
+# RawDeployment mode: UC01 learning, Serverless requires Service Mesh
+# membership that RHDP environments do not reliably provide.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: granite-3-3-8b-instruct
+  namespace: complaint-intelligence
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+  labels:
+    opendatahub.io/dashboard: "true"
+spec:
+  predictor:
+    serviceAccountName: model-serving-sa
+    model:
+      modelFormat:
+        name: vLLM
+      runtime: vllm-runtime
+      # VALIDATE: bucket/path must match what ansible/roles/model_fetch uploads
+      storageUri: s3://models/granite-3.3-8b-instruct

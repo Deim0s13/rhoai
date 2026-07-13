@@ -1,0 +1,36 @@
+---
+# Download the model and upload to MinIO so KServe can pull it.
+# UC01 learnings applied: use the `hf` CLI (huggingface-cli is deprecated);
+# idempotency checks must test mc stdout, not just return code.
+
+- name: Check whether model already present in MinIO
+  ansible.builtin.shell: >
+    mc ls uc02/{{ model_bucket }}/{{ model_prefix }}/ 2>/dev/null | head -1
+  register: model_present
+  changed_when: false
+  failed_when: false
+
+- name: Fetch and upload model
+  when: model_present.stdout | length == 0
+  block:
+    - name: Ensure mc alias
+      ansible.builtin.shell: >
+        mc alias set uc02 http://{{ minio_endpoint }}
+        {{ minio_user }} {{ minio_password }}
+      changed_when: false
+
+    - name: Ensure bucket exists
+      ansible.builtin.shell: mc mb --ignore-existing uc02/{{ model_bucket }}
+      changed_when: false
+
+    - name: Download model with hf CLI
+      ansible.builtin.shell: >
+        hf download {{ model_repo }}
+        --local-dir /tmp/{{ model_prefix }}
+      args:
+        creates: "/tmp/{{ model_prefix }}/config.json"
+
+    - name: Upload to MinIO
+      ansible.builtin.shell: >
+        mc cp --recursive /tmp/{{ model_prefix }}/
+        uc02/{{ model_bucket }}/{{ model_prefix }}/

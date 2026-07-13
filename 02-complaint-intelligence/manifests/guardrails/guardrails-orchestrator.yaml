@@ -1,0 +1,12 @@
+# VALIDATE on day one: TrustyAI operator version and whether built-in detector
+# sidecar injection is available in the provisioned RHOAI.
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: GuardrailsOrchestrator
+metadata:
+  name: guardrails-orchestrator
+  namespace: complaint-intelligence
+spec:
+  orchestratorConfig: "guardrails-orchestrator-config"
+  enableBuiltInDetectors: true
+  enableGuardrailsGateway: false
+  replicas: 1

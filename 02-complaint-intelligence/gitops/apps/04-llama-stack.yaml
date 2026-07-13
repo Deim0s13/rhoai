@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: uc02-llama-stack
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Deim0s13/rhoai.git
+    targetRevision: main
+    path: use-cases/02-complaint-intelligence/manifests/llama-stack
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: complaint-intelligence
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
