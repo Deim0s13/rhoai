@@ -9,7 +9,9 @@
 # Install locally:
 #   pip install -r requirements.txt
 #
-# Python version: 3.11 (matches RHOAI standard data science workbench image)
+# Python version: 3.12 (RHOAI 2.25.8 workbench image —
+# originally written for 3.11 but 3.12 is what ships with
+# the current odh-workbench-jupyter-datascience-cpu-py312-rhel9 image)
 
 # PDF parsing
 # PyMuPDF is preferred over pdfplumber for regulatory PDFs —
@@ -17,7 +19,12 @@
 PyMuPDF==1.24.0
 
 # Vector store client
-pymilvus==2.4.3
+# UPDATED: bumped from 2.4.3 to 2.5.4 — version 2.4.3 pulls in environs
+# which requires marshmallow >= 3.13, but the version resolved on Python 3.12
+# in the RHOAI workbench image doesn't satisfy that constraint, causing an
+# AttributeError on import. pymilvus 2.5.4 drops the environs dependency
+# entirely and is compatible with the Milvus 2.4.x server we deploy.
+pymilvus==2.5.4
 
 # Object store client
 minio==7.2.7
