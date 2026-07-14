@@ -12,9 +12,9 @@ echo "==> Namespace (needed before secrets)"
 oc apply -f manifests/namespace/namespace.yaml
 
 echo "==> Rendering and applying secrets (never committed)"
-for t in manifests/storage/minio-secret.template.yaml \
-         manifests/serving/storage-secret.template.yaml \
-         manifests/llama-stack/inference-secret.template.yaml; do
+for t in secrets/minio-secret.template.yaml \
+         secrets/storage-secret.template.yaml \
+         secrets/inference-secret.template.yaml; do
   envsubst < "$t" | oc apply -f -
 done
 
