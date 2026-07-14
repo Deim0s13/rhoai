@@ -51,6 +51,48 @@ done
 echo "==> Verifying rendered secret (should show your access key, not a placeholder)"
 oc get secret minio-credentials -n "$NS" -o jsonpath='{.data.MINIO_ROOT_USER}' | base64 -d; echo
 
+# --- Guard 7: RHOAI ships Llama Stack and TrustyAI as `Removed` on RHDP
+# catalog images. Their CRDs do not exist until the components are Managed, so
+# manifests/llama-stack and manifests/guardrails fail to apply on a fresh
+# cluster. Session finding 2026-07-14: this was a manual console step, which is
+# precisely the kind of undocumented action the lab exists to eliminate.
+echo "==> Ensuring RHOAI components are Managed (Llama Stack, TrustyAI)"
+DSC=$(oc get datasciencecluster -o name 2>/dev/null | head -1)
+if [ -z "$DSC" ]; then
+  echo "ERROR: no DataScienceCluster found. Is RHOAI installed on this cluster?"
+  exit 1
+fi
+
+oc patch "$DSC" --type=merge -p '{
+  "spec": {
+    "components": {
+      "llamastackoperator": { "managementState": "Managed" },
+      "trustyai":           { "managementState": "Managed" }
+    }
+  }
+}'
+
+# --- Guard 8: patching is asynchronous. The operator reconciles and installs
+# the CRDs; applying manifests before they exist fails with
+# "no matches for kind". Wait for the CRDs themselves, not for the patch.
+echo "==> Waiting for component CRDs to appear (up to 180s)"
+for crd in llamastackdistributions.llamastack.io \
+           guardrailsorchestrators.trustyai.opendatahub.io; do
+  for i in $(seq 1 36); do
+    if oc get crd "$crd" >/dev/null 2>&1; then
+      echo "    ok: $crd"
+      break
+    fi
+    [ "$i" -eq 36 ] && {
+      echo "ERROR: $crd did not appear within 180s."
+      echo "       Check: oc get datasciencecluster -o yaml | grep -A2 -iE 'llamastack|trustyai'"
+      echo "       and:   oc logs -n redhat-ods-operator deploy/rhods-operator --tail=40"
+      exit 1
+    }
+    sleep 5
+  done
+done
+
 if oc get ns openshift-gitops > /dev/null 2>&1; then
   echo "==> Argo CD detected: bootstrapping app-of-apps"
   oc apply -f gitops/app-of-apps.yaml

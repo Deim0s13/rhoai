@@ -17,7 +17,7 @@ spec:
     containerSpec:
       resources:
         requests: { cpu: 250m, memory: 500Mi }
-        limits:   { cpu: "2", memory: 8Gi }
+        limits: { cpu: "2", memory: 8Gi }
       env:
         - name: INFERENCE_MODEL
           valueFrom:
@@ -33,8 +33,9 @@ spec:
             secretKeyRef: { name: llama-stack-inference, key: VLLM_API_TOKEN }
         - name: VLLM_MAX_TOKENS
           value: "4096"
-        # Inline Milvus (demo posture: single node, embedded)
-        - name: MILVUS_DB_PATH
-          value: /.llama/milvus.db
+          # Inline Milvus writes to <distribution>/milvus.db, which the operator
+          # mounts on the PVC at /opt/app-root/src/.llama/distributions/rh.
+          # Validated 2026-07-14: MILVUS_DB_PATH is ignored; the distribution's
+          # own default path is used, and it is persistent. Do not re-add it.
     storage:
       size: 20Gi
