@@ -1,0 +1,14 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: minio-api
+  namespace: complaint-intelligence
+  annotations:
+    # Large model shard uploads exceed the default router timeout
+    haproxy.router.openshift.io/timeout: 1800s
+spec:
+  to:
+    kind: Service
+    name: minio
+  port:
+    targetPort: api
