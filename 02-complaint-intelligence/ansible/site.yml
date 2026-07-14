@@ -1,21 +1,62 @@
 ---
-# Procedural post-deploy seeding. Run after GitOps (or direct apply) has converged.
-# Usage (same env var names as UC01, so one export block serves both use cases):
-#   export MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... MINIO_ENDPOINT=... HF_TOKEN=...
+# Procedural post-deploy seeding. Run after the bootstrap and after Argo (or
+# the direct-apply fallback) has converged.
+#
+# Usage:
+#   export MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... HF_TOKEN=...
 #   ansible-playbook ansible/site.yml
+#
+# The MinIO endpoint is discovered from the Route automatically; do not export
+# MINIO_ENDPOINT by hand (session finding: manual exports were the single
+# biggest source of lost time, and port-forward is unusable for the upload).
 - name: Seed UC02 environment
   hosts: localhost
   connection: local
   gather_facts: false
   vars:
-    namespace: complaint-intelligence
-    minio_endpoint: "{{ lookup('env', 'MINIO_ENDPOINT') }}"
+    # NB: not `namespace`, which is a reserved Ansible name (warns on every run)
+    uc02_namespace: complaint-intelligence
     minio_access_key: "{{ lookup('env', 'MINIO_ACCESS_KEY') }}"
     minio_secret_key: "{{ lookup('env', 'MINIO_SECRET_KEY') }}"
     hf_token: "{{ lookup('env', 'HF_TOKEN') }}"
     model_repo: ibm-granite/granite-3.3-8b-instruct
     model_bucket: models
     model_prefix: granite-3.3-8b-instruct
+    model_local_dir: "/tmp/{{ model_prefix }}"
+
+  pre_tasks:
+    - name: Fail early if credentials are missing
+      ansible.builtin.assert:
+        that:
+          - minio_access_key | length > 0
+          - minio_secret_key | length > 0
+          - hf_token | length > 0
+        fail_msg: >
+          MINIO_ACCESS_KEY, MINIO_SECRET_KEY and HF_TOKEN must all be exported.
+          Session finding: empty variables produced confusing downstream errors
+          rather than an obvious failure.
+
+    - name: Discover the MinIO Route hostname
+      ansible.builtin.command: >
+        oc get route minio-api -n {{ uc02_namespace }} -o jsonpath={.spec.host}
+      register: minio_route
+      changed_when: false
+
+    - name: Fail clearly if the Route is absent
+      ansible.builtin.assert:
+        that: minio_route.stdout | trim | length > 0
+        fail_msg: >
+          Route minio-api not found. Apply manifests/storage/minio-route.yaml
+          (via Argo or oc apply). Do not use `oc expose`: Argo prunes it.
+
+    - name: Set the MinIO endpoint from the Route
+      ansible.builtin.set_fact:
+        minio_endpoint: "{{ minio_route.stdout | trim }}"
+
+    - name: Show resolved endpoint
+      ansible.builtin.debug:
+        msg: "MinIO endpoint: {{ minio_endpoint }}"
+
   roles:
     - model_fetch
     - seed_taxonomy

@@ -1,53 +1,104 @@
 ---
-# Downloads Granite 3.3 8B Instruct and uploads to MinIO for KServe.
-# UC01 learnings applied verbatim (see 01-sovereign-rag DEPLOYMENT-LOG):
+# Downloads the model and seeds it into MinIO.
+#
+# UC01 learnings applied:
 #   - `hf` CLI, not the deprecated no-op `huggingface-cli`
 #   - idempotency via mc stdout content, never exit code (mc ls returns rc=0
 #     on an empty prefix)
-#   - explicit verification after BOTH download and upload; never trust
-#     silent success on hf or mc commands
+#   - explicit verification after BOTH download and upload
+#
+# UC02 session findings applied (2026-07-14):
+#   - upload via the Route, never port-forward (dropped mid-transfer on 16GiB)
+#   - `mc mirror` not `mc cp --recursive`: mirror resumes and skips what is
+#     already uploaded, so a failed run costs minutes instead of restarting
+#   - exclude .cache/*: the hf download tree carries lock/metadata files that
+#     have no business in the model bucket
+#   - try http, fall back to https: RHDP routers sometimes force edge TLS
 
-- name: Ensure mc alias
+- name: Set MinIO alias (http)
   ansible.builtin.command: >
     mc alias set uc02 http://{{ minio_endpoint }} {{ minio_access_key }} {{ minio_secret_key }}
+  register: alias_http
+  failed_when: false
   changed_when: false
+
+- name: Set MinIO alias (https fallback)
+  ansible.builtin.command: >
+    mc alias set uc02 https://{{ minio_endpoint }} {{ minio_access_key }} {{ minio_secret_key }}
+  when: alias_http.rc != 0
+  register: alias_https
+  changed_when: false
+
+- name: Fail clearly if MinIO rejects the credentials
+  ansible.builtin.assert:
+    that: alias_http.rc == 0 or alias_https.rc == 0
+    fail_msg: >
+      Could not authenticate to MinIO over http or https.
+      If the error was "Access Key Id ... does not exist", the running MinIO
+      pod predates the current secret: check
+        oc exec -n {{ uc02_namespace }} deploy/minio -- env | grep MINIO_ROOT
+      and if it shows a literal ${...} placeholder, the secret was applied
+      unrendered (see ADR-0005) and MinIO needs a rollout restart after a
+      correct render.
 
 - name: Ensure models bucket exists
   ansible.builtin.command: mc mb --ignore-existing uc02/{{ model_bucket }}
   changed_when: false
 
-- name: Check if model already seeded
+- name: Check whether model is already seeded
   ansible.builtin.command: mc ls uc02/{{ model_bucket }}/{{ model_prefix }}
   register: model_check
   failed_when: false
   changed_when: false
 
-- name: Determine if model is actually present
+- name: Determine seeding state from stdout content, not return code
   ansible.builtin.set_fact:
     model_already_seeded: "{{ model_check.stdout | trim | length > 0 }}"
 
+- name: Check whether model is already downloaded locally
+  ansible.builtin.find:
+    paths: "{{ model_local_dir }}"
+    patterns: "*.safetensors"
+  register: local_files
+
 - name: Download {{ model_repo }} from Hugging Face
   ansible.builtin.command: >
-    hf download {{ model_repo }} --local-dir /tmp/{{ model_prefix }}
+    hf download {{ model_repo }} --local-dir {{ model_local_dir }}
   environment:
     HF_TOKEN: "{{ hf_token }}"
-  when: not model_already_seeded
+  when:
+    - not model_already_seeded
+    - local_files.matched == 0
 
-- name: Verify the download actually produced files
+- name: Verify the download actually produced weights
   ansible.builtin.find:
-    paths: "/tmp/{{ model_prefix }}"
+    paths: "{{ model_local_dir }}"
     patterns: "*.safetensors"
   register: downloaded_files
   when: not model_already_seeded
-  failed_when: not model_already_seeded and downloaded_files.matched == 0
+  failed_when:
+    - not model_already_seeded
+    - downloaded_files.matched == 0
 
-- name: Upload model to MinIO
+- name: Mirror model to MinIO (resumable; skips what is already there)
   ansible.builtin.command: >
-    mc cp --recursive /tmp/{{ model_prefix }}/ uc02/{{ model_bucket }}/{{ model_prefix }}/
+    mc mirror --overwrite --exclude ".cache/*"
+    {{ model_local_dir }}/ uc02/{{ model_bucket }}/{{ model_prefix }}/
   when: not model_already_seeded
+  register: mirror_result
+  retries: 3
+  delay: 10
+  until: mirror_result.rc == 0
 
-- name: Verify the upload actually landed
-  ansible.builtin.command: mc ls uc02/{{ model_bucket }}/{{ model_prefix }}
+- name: Verify the weights actually landed in MinIO
+  ansible.builtin.shell: >
+    set -o pipefail && mc ls uc02/{{ model_bucket }}/{{ model_prefix }}/ | grep -c safetensors
+  args:
+    executable: /bin/bash
   register: upload_check
   changed_when: false
-  failed_when: upload_check.stdout | trim | length == 0
+  failed_when: upload_check.stdout | int < 1
+
+- name: Report seeded state
+  ansible.builtin.debug:
+    msg: "Model present in MinIO: {{ upload_check.stdout | int }} safetensors files"

@@ -1,10 +1,18 @@
+# Required, not optional. Session finding 2026-07-14:
+#   - port-forward drops mid-transfer on multi-GiB model shard uploads
+#     ("lost connection to pod"), so seeding needs a Route
+#   - the default router timeout kills large shard uploads part-way, hence
+#     the explicit 1800s
+# Do NOT create this with `oc expose`: in an Argo-managed namespace, `oc expose`
+# copies the Service's Argo tracking labels onto the new Route, Argo sees a
+# tracked resource absent from Git, and prunes it within seconds. Create it
+# through Git, like everything else here.
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: minio-api
   namespace: complaint-intelligence
   annotations:
-    # Large model shard uploads exceed the default router timeout
     haproxy.router.openshift.io/timeout: 1800s
 spec:
   to:
