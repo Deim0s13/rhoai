@@ -17,7 +17,7 @@
 
 - name: Set MinIO alias (http)
   ansible.builtin.command: >
-    mc alias set uc02 http://{{ minio_endpoint }} {{ minio_access_key }} {{ minio_secret_key }}
+    mc alias set --api s3v4 uc02 http://{{ minio_endpoint }} {{ minio_access_key }} {{ minio_secret_key }}
   register: alias_http
   failed_when: false
   changed_when: false

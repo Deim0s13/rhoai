@@ -7,6 +7,12 @@ metadata:
   namespace: complaint-intelligence
 spec:
   replicas: 1
+  strategy:
+    type:
+      Recreate # RWO PVC and single-drive erasure backend: RollingUpdate
+      # starts a second pod against the same volume and can
+      # interrupt MinIO's first-time .minio.sys/ init, leaving
+      # a half-written system dir it cannot recover from.
   selector:
     matchLabels: { app: minio }
   template:
@@ -15,7 +21,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z  # UC01-proven tag; VALIDATE currency periodically
+          image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z # UC01-proven tag; VALIDATE currency periodically
           args: ["server", "/data", "--console-address", ":9001"]
           envFrom:
             - secretRef: { name: minio-credentials }

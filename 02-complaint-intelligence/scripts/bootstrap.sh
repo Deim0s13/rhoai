@@ -4,8 +4,9 @@
 # Prereqs: oc logged in; envsubst (macOS: brew install gettext && brew link --force gettext)
 # Required env: MINIO_ACCESS_KEY, MINIO_SECRET_KEY
 #
-# Hardened after the 2026-07-14 session. Each guard below exists because its
-# absence cost real time; see DEPLOYMENT-LOG and ADR-0005.
+# Hardened after the 2026-07-14 (RHOAI 2.25.8) and 2026-07-15 (RHOAI 3.4.2)
+# sessions. Every guard exists because its absence cost real time; see the
+# deployment logs and ADR-0005 / ADR-0006.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -29,6 +30,21 @@ command -v envsubst >/dev/null 2>&1 || {
 # elsewhere, so resources landed in two places at once.
 oc whoami >/dev/null 2>&1 || { echo "ERROR: not logged in. Run oc login first."; exit 1; }
 
+# --- Pre-flight: RHDP catalog items may ship sample workloads holding the GPU.
+# 2026-07-15: a `my-first-model` namespace ran Llama 3.2 3B on the only L4, so
+# our predictor sat Pending with "Insufficient nvidia.com/gpu" on a node whose
+# GPU looked free. Detect, do not delete: removing namespaces we do not own is
+# not this script's job.
+echo "==> Pre-flight: checking GPU availability"
+gpu_holders=$(oc get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"\t"}{.spec.containers[*].resources.requests.nvidia\.com/gpu}{"\n"}{end}' \
+  | grep -vE "^${NS}/" | awk -F'\t' '$2 != "" {print $1}')
+if [ -n "$gpu_holders" ]; then
+  echo "    WARNING: other workloads are holding GPUs:"
+  echo "$gpu_holders" | sed 's/^/      /'
+  echo "    On a single-GPU cluster the predictor will sit Pending."
+  echo "    Free the GPU (e.g. oc delete namespace <ns>) then re-run."
+fi
+
 echo "==> Namespace (must exist before secrets)"
 oc apply -f manifests/namespace/namespace.yaml
 oc project "$NS" >/dev/null
@@ -51,12 +67,11 @@ done
 echo "==> Verifying rendered secret (should show your access key, not a placeholder)"
 oc get secret minio-credentials -n "$NS" -o jsonpath='{.data.MINIO_ROOT_USER}' | base64 -d; echo
 
-# --- Guard 7: RHOAI ships Llama Stack and TrustyAI as `Removed` on RHDP
-# catalog images. Their CRDs do not exist until the components are Managed, so
-# manifests/llama-stack and manifests/guardrails fail to apply on a fresh
-# cluster. Session finding 2026-07-14: this was a manual console step, which is
-# precisely the kind of undocumented action the lab exists to eliminate.
-echo "==> Ensuring RHOAI components are Managed (Llama Stack, TrustyAI)"
+# --- Guard 6: RHOAI may ship components as `Removed` (2.25.8 shipped Llama
+# Stack and TrustyAI that way; 3.4.2 ships MLflow that way). Their CRDs do not
+# exist until Managed, so those manifests fail with "no matches for kind".
+# Patching is idempotent: already-Managed components are unaffected.
+echo "==> Ensuring RHOAI components are Managed (Llama Stack, TrustyAI, MLflow)"
 DSC=$(oc get datasciencecluster -o name 2>/dev/null | head -1)
 if [ -z "$DSC" ]; then
   echo "ERROR: no DataScienceCluster found. Is RHOAI installed on this cluster?"
@@ -67,14 +82,15 @@ oc patch "$DSC" --type=merge -p '{
   "spec": {
     "components": {
       "llamastackoperator": { "managementState": "Managed" },
-      "trustyai":           { "managementState": "Managed" }
+      "trustyai":           { "managementState": "Managed" },
+      "mlflowoperator":     { "managementState": "Managed" }
     }
   }
 }'
 
-# --- Guard 8: patching is asynchronous. The operator reconciles and installs
-# the CRDs; applying manifests before they exist fails with
-# "no matches for kind". Wait for the CRDs themselves, not for the patch.
+# --- Guard 7: patching is asynchronous. The operator reconciles and installs
+# the CRDs; applying manifests before they exist fails. Wait for the CRDs
+# themselves, not for the patch response.
 echo "==> Waiting for component CRDs to appear (up to 180s)"
 for crd in llamastackdistributions.llamastack.io \
            guardrailsorchestrators.trustyai.opendatahub.io; do
@@ -107,23 +123,44 @@ else
       oc apply -n "$NS" -f "$f" || true
     done
   done
-  echo "    NOTE: llama-stack and guardrails CRs fail until those operators are"
-  echo "    set to Managed in RHOAI. Activate them, then re-run this script."
 fi
 
-# --- Guard 6: MinIO must be running the CURRENT secret. envFrom is read at
-# container start, so a secret applied after the pod started is not in effect.
-echo "==> Ensuring MinIO picks up current credentials"
-oc rollout restart deploy/minio -n "$NS" >/dev/null 2>&1 || true
-oc rollout status deploy/minio -n "$NS" --timeout=180s || true
+# --- Guard 8: MinIO must be running the CURRENT credentials. `envFrom` reads a
+# Secret only at container start, so a pod predating a credential change keeps
+# the old values (2026-07-14: cost most of a session).
+#
+# But an unconditional restart is itself harmful: on a fresh deploy it can
+# interrupt MinIO's first-time .minio.sys/ init on a single-drive erasure
+# backend, leaving a volume it cannot recover from and reporting
+# "0 drives online" (2026-07-15).
+#
+# So: check the running state directly rather than inferring from timestamps
+# (`oc apply` on a changed Secret does not update creationTimestamp, so time
+# comparison misses the exact case this guard exists for). Restart only if the
+# live pod's credentials actually differ.
+#
+# This guard must run LAST: MinIO does not exist until the apply block above.
+echo "==> Verifying MinIO is running the current credentials"
+if oc get deploy/minio -n "$NS" >/dev/null 2>&1; then
+  oc rollout status deploy/minio -n "$NS" --timeout=180s >/dev/null 2>&1 || true
+  live_user=$(oc exec deploy/minio -n "$NS" -- printenv MINIO_ROOT_USER 2>/dev/null || echo "")
+  if [ -z "$live_user" ]; then
+    echo "    MinIO not reachable yet; skipping restart (check it manually if seeding fails)"
+  elif [ "$live_user" != "$MINIO_ACCESS_KEY" ]; then
+    echo "    Running pod has stale credentials ($live_user); restarting"
+    oc rollout restart deploy/minio -n "$NS"
+    oc rollout status deploy/minio -n "$NS" --timeout=180s
+  else
+    echo "    MinIO already running current credentials; no restart needed"
+  fi
+fi
 
 cat <<'NEXT'
 
 ==> Bootstrap complete. Next:
-    1. Activate Llama Stack and TrustyAI (Managed) in RHOAI if not already.
-    2. export HF_TOKEN=<token>
-    3. ansible-playbook ansible/site.yml     # discovers the Route itself
-    4. After seeding: oc delete pod -l serving.kserve.io/inferenceservice=granite-3-3-8b-instruct
+    1. export HF_TOKEN=<token>
+    2. ansible-playbook ansible/site.yml     # discovers the Route itself
+    3. After seeding: oc delete pod -l serving.kserve.io/inferenceservice=granite-3-3-8b-instruct
 
     Do NOT use `oc expose` or port-forward for MinIO: the Route is managed in
     manifests/storage/minio-route.yaml. See ADR-0005.
