@@ -1,4 +1,4 @@
-# Deployment log: 2026-07-14 (RHDP sandbox, cluster-8dvx8)
+# Deployment log: 2026-07-15 (RHDP sandbox, cluster-8dvx8)
 
 First live deployment of use case 02, Complaint Intelligence. Same discipline as
 UC01: what actually happened, what changed from the design, and where to resume.
