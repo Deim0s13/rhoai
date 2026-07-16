@@ -1,16 +1,17 @@
-# Shape follows the RHOAI 3.4 documented example.
+# Shape follows the RHOAI 3.4 documented examples (Example A: inline Milvus,
+# with inline embeddings per Examples B and C).
 #
-# Session finding 2026-07-15: RHOAI 3.2+ made PostgreSQL the default metadata
-# store. The 2.25 version of this CR (SQLite on the PVC, MILVUS_DB_PATH) fails
-# on 3.4 with "Could not connect to PostgreSQL database server" about 2s after
-# start, before any vLLM connection is attempted.
+# Session findings 2026-07-15:
+#   - RHOAI 3.2+ requires PostgreSQL for the metadata store; the user provisions
+#     it. Absent it, the pod exits ~2s after start.
+#   - The inline Milvus and sentence-transformers providers are NOT enabled by
+#     default on 3.4. They are opt-in via ENABLE_INLINE_MILVUS and
+#     ENABLE_SENTENCE_TRANSFORMERS. Omitting them is why /v1/providers showed
+#     no vector_io provider and /v1/models listed no embedding model.
+#   - Do not re-add MILVUS_DB_PATH: inline Milvus uses PostgreSQL for metadata
+#     from 3.2, and the variable was a no-op on 2.25 anyway.
 #
-# Notes:
-#   - `rh-dev` remains the correct distribution name on 3.4
-#   - the PVC is still required even with Postgres (docs example keeps it)
-#   - inline Milvus uses Postgres as its backing metadata store from 3.2, so
-#     MILVUS_DB_PATH is gone: do not re-add it
-#   - Llama Stack creates the database itself if the user has privileges
+# NOTE: the RAG stack is Technology Preview in RHOAI 3.4.
 apiVersion: llamastack.io/v1alpha1
 kind: LlamaStackDistribution
 metadata:
@@ -25,9 +26,39 @@ spec:
       name: llama-stack
       port: 8321
       resources:
-        requests: { cpu: 250m, memory: 500Mi }
-        limits: { cpu: "2", memory: 8Gi }
+        requests: { cpu: "250m", memory: "500Mi" }
+        # Raised from 2/8Gi: inline Milvus and sentence-transformers both run
+        # in this container. Docs Example A uses 4/12Gi.
+        limits: { cpu: "4", memory: "12Gi" }
       env:
+        # --- PostgreSQL metadata store (required, RHOAI 3.2+) ---
+        - name: POSTGRES_HOST
+          value: postgres.complaint-intelligence.svc.cluster.local
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: llamastack
+        - name: POSTGRES_USER
+          value: llamastack
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+
+        # --- Vector store: inline Milvus (ADR-0008) ---
+        # Required. Without this, no vector_io provider is registered at all.
+        - name: ENABLE_INLINE_MILVUS
+          value: "true"
+
+        # --- Embeddings: inline sentence-transformers (ADR-0008) ---
+        # Both required from 3.4; the provider is no longer on by default.
+        - name: ENABLE_SENTENCE_TRANSFORMERS
+          value: "true"
+        - name: EMBEDDING_PROVIDER
+          value: "sentence-transformers"
+
+        # --- Inference ---
         - name: INFERENCE_MODEL
           valueFrom:
             secretKeyRef: { name: llama-stack-inference, key: INFERENCE_MODEL }
@@ -42,19 +73,5 @@ spec:
             secretKeyRef: { name: llama-stack-inference, key: VLLM_API_TOKEN }
         - name: VLLM_MAX_TOKENS
           value: "4096"
-        # PostgreSQL metadata store (RHOAI 3.2+)
-        - name: POSTGRES_HOST
-          value: postgres.complaint-intelligence.svc.cluster.local
-        - name: POSTGRES_PORT
-          value: "5432"
-        - name: POSTGRES_DB
-          value: llamastack
-        - name: POSTGRES_USER
-          value: llamastack
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: password
     storage:
       size: 20Gi
