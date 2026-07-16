@@ -7,6 +7,13 @@
 experiments and proposed layering a four-stage span convention onto platform
 tracing. Live validation invalidated both assumptions.
 
+**Update 2026-07-15 (RHOAI 3.4.2):** completion responses no longer carry a
+`metrics` block with trace_id/span_id; only OpenAI-native `usage`. Whether
+server-side telemetry persists as it did on 2.25.8 is unverified on 3.4. This
+does not change the decision: it reinforces it. The telemetry story changed
+across one major version, while the evidence record schema did not. Evidence we
+write deliberately survives platform churn; telemetry we inherit does not.
+
 ## Context
 
 The controls alignment matrix commits this use case to several evidence rows:

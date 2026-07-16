@@ -23,7 +23,6 @@ spec:
       autoSelect: true
   containers:
     - name: kserve-container
-      # VALIDATE: 3.2.5 was current at UC01 validation (2026-06-30); confirm on day one
       image: registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5
       command: ["vllm", "serve"]
       args:
@@ -32,14 +31,10 @@ spec:
         - "--dtype=bfloat16"
         - "--max-model-len=8192"
         - "--gpu-memory-utilization=0.85"
-        # VALIDATE: friendly model name for Llama Stack / demo API calls.
-        # UC01's proven baseline used no served-model-name (model = "/mnt/models"
-        # in API calls). If this flag misbehaves, remove it and set
-        # INFERENCE_MODEL=/mnt/models in the Llama Stack secret instead.
         - "--served-model-name=granite-3-3-8b-instruct"
       ports:
         - containerPort: 8080
           protocol: TCP
       resources:
         requests: { nvidia.com/gpu: "1" }
-        limits:   { nvidia.com/gpu: "1" }
+        limits: { nvidia.com/gpu: "1" }

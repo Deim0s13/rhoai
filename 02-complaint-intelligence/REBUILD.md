@@ -20,6 +20,7 @@ oc login --token=<token> --server=<api-url>
 
 export MINIO_ACCESS_KEY='minio-admin'
 export MINIO_SECRET_KEY='<choose-a-password>'    # quote it; a trailing ! breaks unquoted
+export POSTGRES_PASSWORD='<choose-a-password>'   # Llama Stack metadata store (RHOAI 3.2+)
 export HF_TOKEN='<hf-token>'
 ```
 
@@ -95,12 +96,12 @@ curl -s http://localhost:8081/v1/chat/completions \
 
 ## If something fails
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `Access Key Id ... does not exist` | MinIO running stale/placeholder credentials | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio` |
-| `Unauthorized` on every oc command | Token expired (RHDP tokens are short) | Fresh `oc login` |
-| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket` | Model not seeded yet | Expected before step 4; ignore |
-| Predictor `Pending` forever | GPU label mismatch | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector |
-| Route "created" then "not found" | Created via `oc expose` in an Argo namespace | Apply the committed manifest instead |
-| `mc` TLS error over http | Router forces edge TLS | The Ansible role falls back to https automatically |
-| `no matches for kind "LlamaStackDistribution"` | Component still `Removed`; CRD absent | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD |
+| Symptom                                                    | Cause                                        | Fix                                                                                                                     |
+| ---------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `Access Key Id ... does not exist`                         | MinIO running stale/placeholder credentials  | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio` |
+| `Unauthorized` on every oc command                         | Token expired (RHDP tokens are short)        | Fresh `oc login`                                                                                                        |
+| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket` | Model not seeded yet                         | Expected before step 4; ignore                                                                                          |
+| Predictor `Pending` forever                                | GPU label mismatch                           | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                            |
+| Route "created" then "not found"                           | Created via `oc expose` in an Argo namespace | Apply the committed manifest instead                                                                                    |
+| `mc` TLS error over http                                   | Router forces edge TLS                       | The Ansible role falls back to https automatically                                                                      |
+| `no matches for kind "LlamaStackDistribution"`             | Component still `Removed`; CRD absent        | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                             |

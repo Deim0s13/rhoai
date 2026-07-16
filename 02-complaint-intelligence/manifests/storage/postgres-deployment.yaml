@@ -1,0 +1,82 @@
+# PostgreSQL metadata store for Llama Stack.
+#
+# Required from RHOAI 3.2 onward: PostgreSQL is the default metadata store for
+# Llama Stack, and Red Hat's docs are explicit that provisioning it is the
+# user's responsibility. RHOAI 2.25 used SQLite on the PVC and needed none of
+# this. Symptom if absent: the distribution pod exits ~2s after start with
+# "RuntimeError: Could not connect to PostgreSQL database server".
+#
+# Llama Stack creates its own tables (and the database itself, given
+# privileges), so this only needs to provide an empty database and a user.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: complaint-intelligence
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: complaint-intelligence
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO PVC: same reasoning as MinIO (see ADR-0005 log)
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          # VALIDATE: pin to a digest once the first pull succeeds (lab principle:
+          # no :latest). Docs require PostgreSQL 14 or later.
+          image: registry.redhat.io/rhel9/postgresql-16:latest
+          env:
+            - name: POSTGRESQL_USER
+              value: llamastack
+            - name: POSTGRESQL_DATABASE
+              value: llamastack
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+          ports:
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+          readinessProbe:
+            exec:
+              command: ["/usr/libexec/check-container"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: postgres-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: complaint-intelligence
+spec:
+  selector: { app: postgres }
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

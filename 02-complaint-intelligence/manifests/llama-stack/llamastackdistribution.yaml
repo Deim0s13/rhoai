@@ -1,9 +1,16 @@
-# Shape grounded on the documented RHOAI 2.25 example (rh-dev distribution,
-# vLLM remote inference, inline Milvus for the demo).
-# VALIDATE on day one:
-#   - operator availability and CRD version in the provisioned RHOAI
-#   - distribution name (rh-dev) for that version
-#   - inline Milvus env expectations for that version
+# Shape follows the RHOAI 3.4 documented example.
+#
+# Session finding 2026-07-15: RHOAI 3.2+ made PostgreSQL the default metadata
+# store. The 2.25 version of this CR (SQLite on the PVC, MILVUS_DB_PATH) fails
+# on 3.4 with "Could not connect to PostgreSQL database server" about 2s after
+# start, before any vLLM connection is attempted.
+#
+# Notes:
+#   - `rh-dev` remains the correct distribution name on 3.4
+#   - the PVC is still required even with Postgres (docs example keeps it)
+#   - inline Milvus uses Postgres as its backing metadata store from 3.2, so
+#     MILVUS_DB_PATH is gone: do not re-add it
+#   - Llama Stack creates the database itself if the user has privileges
 apiVersion: llamastack.io/v1alpha1
 kind: LlamaStackDistribution
 metadata:
@@ -15,6 +22,8 @@ spec:
     distribution:
       name: rh-dev
     containerSpec:
+      name: llama-stack
+      port: 8321
       resources:
         requests: { cpu: 250m, memory: 500Mi }
         limits: { cpu: "2", memory: 8Gi }
@@ -33,9 +42,19 @@ spec:
             secretKeyRef: { name: llama-stack-inference, key: VLLM_API_TOKEN }
         - name: VLLM_MAX_TOKENS
           value: "4096"
-          # Inline Milvus writes to <distribution>/milvus.db, which the operator
-          # mounts on the PVC at /opt/app-root/src/.llama/distributions/rh.
-          # Validated 2026-07-14: MILVUS_DB_PATH is ignored; the distribution's
-          # own default path is used, and it is persistent. Do not re-add it.
+        # PostgreSQL metadata store (RHOAI 3.2+)
+        - name: POSTGRES_HOST
+          value: postgres.complaint-intelligence.svc.cluster.local
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: llamastack
+        - name: POSTGRES_USER
+          value: llamastack
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
     storage:
       size: 20Gi

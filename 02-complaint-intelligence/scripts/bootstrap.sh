@@ -22,27 +22,43 @@ command -v envsubst >/dev/null 2>&1 || {
 # --- Guard 2: credentials must be set AND non-empty.
 : "${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY (e.g. export MINIO_ACCESS_KEY=minio-admin)}"
 : "${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY}"
-[ -n "$MINIO_ACCESS_KEY" ] && [ -n "$MINIO_SECRET_KEY" ] || {
-  echo "ERROR: MINIO_ACCESS_KEY / MINIO_SECRET_KEY are set but empty."; exit 1; }
+: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (Llama Stack metadata store, RHOAI 3.2+)}"
+[ -n "$MINIO_ACCESS_KEY" ] && [ -n "$MINIO_SECRET_KEY" ] && [ -n "$POSTGRES_PASSWORD" ] || {
+  echo "ERROR: one or more required credentials are set but empty."; exit 1; }
 
 # --- Guard 3: logged in, and pin every command to the right namespace.
 # Session finding: the active project was 'default' while -n flags pointed
 # elsewhere, so resources landed in two places at once.
 oc whoami >/dev/null 2>&1 || { echo "ERROR: not logged in. Run oc login first."; exit 1; }
 
-# --- Pre-flight: RHDP catalog items may ship sample workloads holding the GPU.
-# 2026-07-15: a `my-first-model` namespace ran Llama 3.2 3B on the only L4, so
-# our predictor sat Pending with "Insufficient nvidia.com/gpu" on a node whose
-# GPU looked free. Detect, do not delete: removing namespaces we do not own is
-# not this script's job.
+# --- Pre-flight: RHDP catalog items ship sample workloads that hold the GPU.
+# Confirmed on two consecutive 3.4 clusters: a `my-first-model` namespace runs
+# Llama 3.2 3B on the only L4, so our predictor sits Pending with
+# "Insufficient nvidia.com/gpu" on a node whose GPU otherwise looks free.
+#
+# We delete ONLY namespaces on this explicit allow-list, and only when they are
+# actually holding a GPU. Deleting arbitrary namespaces we do not own is not
+# this script's job: it must stay safe to run anywhere. Set UC02_FREE_GPU=false
+# to disable and warn only.
+RHDP_SAMPLE_NAMESPACES="my-first-model"
+
 echo "==> Pre-flight: checking GPU availability"
-gpu_holders=$(oc get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"\t"}{.spec.containers[*].resources.requests.nvidia\.com/gpu}{"\n"}{end}' \
-  | grep -vE "^${NS}/" | awk -F'\t' '$2 != "" {print $1}')
-if [ -n "$gpu_holders" ]; then
-  echo "    WARNING: other workloads are holding GPUs:"
-  echo "$gpu_holders" | sed 's/^/      /'
-  echo "    On a single-GPU cluster the predictor will sit Pending."
-  echo "    Free the GPU (e.g. oc delete namespace <ns>) then re-run."
+gpu_holders=$(oc get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.containers[*].resources.requests.nvidia\.com/gpu}{"\n"}{end}' 2>/dev/null \
+  | awk -F'\t' -v ns="$NS" '$3 != "" && $1 != ns {print $1}' | sort -u)
+
+if [ -z "$gpu_holders" ]; then
+  echo "    No competing GPU workloads"
+else
+  for holder in $gpu_holders; do
+    if [ "${UC02_FREE_GPU:-true}" = "true" ] && grep -qw -- "$holder" <<< "$RHDP_SAMPLE_NAMESPACES"; then
+      echo "    Known RHDP sample namespace '$holder' is holding a GPU. Deleting."
+      oc delete namespace "$holder" --wait=true
+    else
+      echo "    WARNING: namespace '$holder' is holding a GPU and is not a known"
+      echo "             RHDP sample. On a single-GPU cluster the predictor will"
+      echo "             sit Pending. Free it, then re-run."
+    fi
+  done
 fi
 
 echo "==> Namespace (must exist before secrets)"
@@ -122,6 +138,12 @@ else
       [ -e "$f" ] || continue
       oc apply -n "$NS" -f "$f" || true
     done
+    # Llama Stack (RHOAI 3.2+) needs PostgreSQL reachable at startup or it exits
+    # with "Could not connect to PostgreSQL database server". It recovers on its
+    # own, but waiting here keeps the deployment readable.
+    if [ "$layer" = "storage" ]; then
+      oc rollout status deploy/postgres -n "$NS" --timeout=180s || true
+    fi
   done
 fi
 
