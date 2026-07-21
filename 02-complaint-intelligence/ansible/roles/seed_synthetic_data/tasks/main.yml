@@ -1,18 +1,87 @@
 ---
-# Upload the reviewed synthetic fixture set to MinIO for ingestion.
-# Held as a stub until data/synthetic/ contains the generated, reviewed set.
-- name: Check fixture set exists locally
-  ansible.builtin.stat:
-    path: "{{ playbook_dir }}/../data/synthetic/records.jsonl"
-  register: fixtures
+# Generate the synthetic dataset locally, then upload it to MinIO for ingestion.
+#
+# The scripts are the versioned artefacts; their output is not committed
+# (data/synthetic/out/ is gitignored). Generation is deterministic (fixed seed),
+# so the same dataset lands every rebuild, which keeps the guardrail and
+# classification demos repeatable.
+#
+# Runs locally on any machine with Python 3 and mc: no cluster dependency for
+# generation, only for the upload. UC01 learnings applied: --api s3v4, and
+# idempotency checked on mc stdout content rather than return code.
 
-- name: Upload fixtures to MinIO
-  when: fixtures.stat.exists
-  ansible.builtin.shell: >
-    mc cp {{ playbook_dir }}/../data/synthetic/records.jsonl
+- name: Ensure Python dependencies for generation are present
+  ansible.builtin.pip:
+    name:
+      - pyyaml
+      - reportlab
+    state: present
+    extra_args: --user
+  # If the controller manages Python differently, this can be a documented
+  # prerequisite instead; kept here so a fresh machine seeds without extra steps.
+
+- name: Generate the synthetic complaint dataset
+  ansible.builtin.command:
+    cmd: python3 generate.py
+    chdir: "{{ playbook_dir }}/../data/synthetic"
+  changed_when: true
+
+- name: Render the document subset (PDF letters and emails) for Docling
+  ansible.builtin.command:
+    cmd: python3 render_documents.py
+    chdir: "{{ playbook_dir }}/../data/synthetic"
+  changed_when: true
+
+- name: Confirm the dataset was produced
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../data/synthetic/out/records.jsonl"
+  register: dataset
+
+- name: Fail clearly if generation produced nothing
+  ansible.builtin.assert:
+    that: dataset.stat.exists
+    fail_msg: >
+      Synthetic generation did not produce out/records.jsonl. Run
+      python3 generate.py in data/synthetic/ manually to see the error.
+
+- name: Ensure MinIO alias (s3v4; auto-probe dies through the router)
+  ansible.builtin.command: >
+    mc alias set --api s3v4 uc02 http://{{ minio_endpoint }}
+    {{ minio_access_key }} {{ minio_secret_key }}
+  changed_when: false
+
+- name: Ensure the complaints bucket exists
+  ansible.builtin.command: mc mb --ignore-existing uc02/complaints
+  changed_when: false
+
+- name: Upload the records to MinIO
+  ansible.builtin.command: >
+    mc cp {{ playbook_dir }}/../data/synthetic/out/records.jsonl
     uc02/complaints/incoming/records.jsonl
 
-- name: Note when fixtures are absent
-  when: not fixtures.stat.exists
+- name: Upload the reference labels (evaluation baseline)
+  ansible.builtin.command: >
+    mc cp {{ playbook_dir }}/../data/synthetic/out/reference-labels.jsonl
+    uc02/complaints/reference/reference-labels.jsonl
+
+- name: Mirror the rendered documents (Docling ingestion path)
+  ansible.builtin.command: >
+    mc mirror --overwrite --exclude "MANIFEST.md"
+    {{ playbook_dir }}/../data/synthetic/out/documents/
+    uc02/complaints/documents/
+
+- name: Verify the records actually landed in MinIO
+  ansible.builtin.command: mc ls uc02/complaints/incoming/records.jsonl
+  register: upload_check
+  changed_when: false
+  failed_when: upload_check.stdout | trim | length == 0
+
+- name: Report what was seeded
+  ansible.builtin.command: >
+    mc ls --recursive uc02/complaints/
+  register: seeded
+  changed_when: false
+
+- name: Show seeded objects
   ansible.builtin.debug:
-    msg: "No fixture set found; generate and review synthetic data first."
+    var: seeded.stdout_lines

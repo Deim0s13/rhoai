@@ -1,0 +1,455 @@
+# Seed scenarios for synthetic complaint generation
+#
+# This file is the reviewable content of the dataset. The generator
+# (generate.py) is mechanical: it fills slots, applies channel formatting,
+# plants mock PII, and assembles records. The judgement lives here.
+#
+# Each scenario carries its ground-truth theme and root cause. Every generated
+# record inherits them, so the reference labels are correct by construction
+# rather than by later annotation.
+#
+# Slots are filled from pools in generate.py. Mock PII is planted separately,
+# per the conventions in fixtures.md, so any scenario can carry it.
+#
+# Distribution is deliberately skewed. THM-05 (digital) and THM-07 (hardship)
+# dominate so the theme dashboard tells a story rather than showing ten equal
+# bars. Root causes skew to RC-02 (system defect) and RC-07 (timeliness) for
+# the same reason: the root-cause view must point somewhere.
+
+version: "0.1.0"
+taxonomy_version: "0.1.0"
+
+scenarios:
+  # ---------------------------------------------------------------------------
+  # THM-01: Onboarding and account opening
+  # ---------------------------------------------------------------------------
+  - id: THM-01-a
+    theme: THM-01
+    root_cause: RC-01
+    weight: 2
+    body: >
+      I applied to open an everyday account on {date} and I have now been asked
+      for proof of address {count} separate times. Each time I upload the
+      document I get an email a few days later saying it is unreadable or not
+      accepted. Nobody has told me what would actually be acceptable. It has been
+      {weeks} weeks and I still do not have a usable account.
+
+  - id: THM-01-b
+    theme: THM-01
+    root_cause: RC-07
+    weight: 2
+    body: >
+      Applied for a joint account with my partner on {date}. We were told five
+      working days. It is now {weeks} weeks later and the application is still
+      showing as "in progress". We have called twice and both times were told it
+      is with the verification team and there is no way to escalate.
+
+  - id: THM-01-c
+    theme: THM-01
+    root_cause: RC-03
+    weight: 1
+    body: >
+      Went into the {suburb} branch to open an account for my daughter who is
+      turning 16. The staff member did not know how to process a minor account
+      and told us to come back when a different person was working. We came back
+      on {date} and that person also did not know. Two trips wasted.
+
+  - id: THM-01-d
+    theme: THM-01
+    root_cause: RC-06
+    weight: 1
+    body: >
+      My account application was declined because your identity check could not
+      verify me. I have lived at the same address for {years} years and I have a
+      current passport and drivers licence. The person on the phone said it was
+      the external checking service and there was nothing they could do at their
+      end. So who do I talk to?
+
+  # ---------------------------------------------------------------------------
+  # THM-02: Fees and charges
+  # ---------------------------------------------------------------------------
+  - id: THM-02-a
+    theme: THM-02
+    root_cause: RC-04
+    weight: 3
+    body: >
+      I have been charged a ${amount} monthly account fee for {months} months on
+      an account that was advertised as fee free. When I called I was told the
+      fee free offer only applies if you deposit ${threshold} a month, which is
+      not what the person who signed me up said and not what the website said at
+      the time.
+
+  - id: THM-02-b
+    theme: THM-02
+    root_cause: RC-02
+    weight: 3
+    body: >
+      On {date} I was charged the same ${amount} overseas transaction fee twice
+      for one purchase. I have the statement in front of me and there are two
+      identical lines, same time, same amount. I have called {count} times and
+      each time I am told it will be investigated and nobody calls back.
+
+  - id: THM-02-c
+    theme: THM-02
+    root_cause: RC-03
+    weight: 2
+    body: >
+      I was promised a fee waiver for {months} months when I moved my banking
+      over. The person I dealt with wrote it on a card and gave it to me. The
+      fees have been charged every month since. When I called, the person said
+      there was no note on my file so it could not have happened.
+
+  - id: THM-02-d
+    theme: THM-02
+    root_cause: RC-01
+    weight: 2
+    body: >
+      Your dishonour fee process is unfair. A direct debit came out {hours} hours
+      before my pay landed, I was charged ${amount}, and the same thing happened
+      the next month. I have asked whether the debit can be moved a day later and
+      was told the merchant controls that. So I get charged for something I
+      cannot change.
+
+  # ---------------------------------------------------------------------------
+  # THM-03: Lending and credit decisions
+  # ---------------------------------------------------------------------------
+  - id: THM-03-a
+    theme: THM-03
+    root_cause: RC-05
+    weight: 3
+    body: >
+      We had pre-approval for a home loan and made an offer on a house on the
+      strength of it. On {date}, {days} days before settlement, we were told the
+      pre-approval had been withdrawn. No explanation beyond "circumstances have
+      changed". Nothing has changed at our end. We are now at risk of losing the
+      deposit.
+
+  - id: THM-03-b
+    theme: THM-03
+    root_cause: RC-04
+    weight: 2
+    body: >
+      My credit card limit was reduced from ${amount} to ${amount2} without any
+      warning. I found out when a payment declined at a checkout. I have never
+      missed a payment in {years} years. I understand you can do this but not
+      telling me first is what I am complaining about.
+
+  - id: THM-03-c
+    theme: THM-03
+    root_cause: RC-01
+    weight: 2
+    body: >
+      Applied for a small personal loan to consolidate two debts, which would
+      have reduced my monthly outgoings. Declined on affordability. The
+      assessment counted the debts I am consolidating as ongoing expenses on top
+      of the new loan. That is the whole point of consolidating. Nobody would
+      look at it again.
+
+  # ---------------------------------------------------------------------------
+  # THM-04: Payments and transfers
+  # ---------------------------------------------------------------------------
+  - id: THM-04-a
+    theme: THM-04
+    root_cause: RC-06
+    weight: 3
+    body: >
+      I sent ${amount} to my son overseas on {date}. It left my account
+      immediately. It is now {days} business days and it has not arrived. Every
+      time I call I am told it is with the correspondent bank and there is no
+      trace available. Nobody can tell me where my money is.
+
+  - id: THM-04-b
+    theme: THM-04
+    root_cause: RC-02
+    weight: 3
+    body: >
+      My rent payment failed on {date} with no notification. There were funds in
+      the account. I only found out when my landlord contacted me. Your app still
+      shows the payment as scheduled. This has now happened {count} times.
+
+  - id: THM-04-c
+    theme: THM-04
+    root_cause: RC-03
+    weight: 2
+    body: >
+      I transposed two digits in an account number and sent ${amount} to the
+      wrong person. I rang within {hours} hours. I was told a recall would be
+      lodged. Three weeks later I called again and there was no recall on file.
+      Nobody had done anything.
+
+  - id: THM-04-d
+    theme: THM-04
+    root_cause: RC-07
+    weight: 2
+    body: >
+      Set up a direct debit on {date}. It did not activate for {weeks} weeks and
+      in the meantime I missed two payments to the merchant and got charged their
+      late fee. Every time I called I was told it was still processing.
+
+  # ---------------------------------------------------------------------------
+  # THM-05: Digital and self-service experience  (DOMINANT THEME)
+  # ---------------------------------------------------------------------------
+  - id: THM-05-a
+    theme: THM-05
+    root_cause: RC-02
+    weight: 6
+    body: >
+      I have been locked out of the app since {date}. Every time I try to log in
+      it says my details are wrong, I reset the password, it accepts the reset,
+      and then the same thing happens. I went into the {suburb} branch and they
+      said they cannot reset app access from there. So I have no way in.
+
+  - id: THM-05-b
+    theme: THM-05
+    root_cause: RC-02
+    weight: 6
+    body: >
+      The app has been down or unusable most mornings for the last {weeks}
+      weeks. It sits on the loading screen and then times out. I am self employed
+      and I check my account every morning before I open. There has been no
+      communication about any of this.
+
+  - id: THM-05-c
+    theme: THM-05
+    root_cause: RC-01
+    weight: 5
+    body: >
+      Your two factor authentication sends a code to a phone number I have not
+      had for {years} years. To change the number I need to log in. To log in I
+      need the code. To change it in a branch I need photo ID which I have, but
+      the branch said the change has to be done online. This is circular and
+      nobody seems to see the problem.
+
+  - id: THM-05-d
+    theme: THM-05
+    root_cause: RC-02
+    weight: 5
+    body: >
+      Since the app update on {date} my {product} account has disappeared from
+      the account list. The money is still there because I can see it on the
+      statement, but the account does not show in the app. I reported this
+      {weeks} weeks ago, got a reference number, and have heard nothing.
+
+  - id: THM-05-e
+    theme: THM-05
+    root_cause: RC-03
+    weight: 4
+    body: >
+      I called about a problem with online banking and was told to clear my
+      cache. I did. Then to reinstall the app. I did. Then to use a different
+      browser. I did. None of it worked and none of the three people I spoke to
+      asked what the actual error message said. It says "session token invalid",
+      which I would have told them.
+
+  - id: THM-05-f
+    theme: THM-05
+    root_cause: RC-01
+    weight: 4
+    body: >
+      There is no way to update my address in the app. The help page says to use
+      the app. The app has no such option. I have called twice, waited over
+      {minutes} minutes both times, and given up. It is {year} and I cannot
+      change my own address.
+
+  - id: THM-05-g
+    theme: THM-05
+    root_cause: RC-02
+    weight: 4
+    body: >
+      The scheduled payments screen shows different amounts to the actual
+      payments coming out. I nearly missed a bill because the app told me it was
+      ${amount} when it was ${amount2}. I do not trust what the app is telling me
+      any more.
+
+  # ---------------------------------------------------------------------------
+  # THM-06: Fraud, scams and security
+  # ---------------------------------------------------------------------------
+  - id: THM-06-a
+    theme: THM-06
+    root_cause: RC-07
+    weight: 3
+    body: >
+      I was scammed on {date} and reported it within {hours} hours. I was told
+      nothing could be done because the funds had already left. It had been less
+      than an hour. I do not understand how there was no attempt to recall
+      anything in that time.
+
+  - id: THM-06-b
+    theme: THM-06
+    root_cause: RC-02
+    weight: 2
+    body: >
+      There were {count} transactions on my card from an overseas merchant I have
+      never used, all within twenty minutes, all approved. Your fraud system
+      apparently saw nothing wrong with that. I have never travelled to that
+      country and there is no history of anything similar on my account.
+
+  - id: THM-06-c
+    theme: THM-06
+    root_cause: RC-04
+    weight: 3
+    body: >
+      I reported an unauthorised transaction and was told I am liable because I
+      "must have shared my details". I did not. I was never told what evidence
+      that conclusion is based on and when I asked I was told the investigation
+      is confidential. How am I supposed to dispute a finding I cannot see?
+
+  - id: THM-06-d
+    theme: THM-06
+    root_cause: RC-03
+    weight: 2
+    body: >
+      When I reported my card lost, the person on the phone read my full card
+      number back to me out loud before I had confirmed anything. I was in a
+      public place. That does not seem right and I want to know if that is your
+      process.
+
+  # ---------------------------------------------------------------------------
+  # THM-07: Financial hardship support  (DOMINANT THEME)
+  # ---------------------------------------------------------------------------
+  - id: THM-07-a
+    theme: THM-07
+    root_cause: RC-07
+    weight: 6
+    body: >
+      I submitted a hardship application on {date} after being made redundant.
+      While I was waiting to hear back I received a default notice. Nobody had
+      told me the application was still open or that this would happen. I have
+      now been waiting {weeks} weeks for a decision.
+
+  - id: THM-07-b
+    theme: THM-07
+    root_cause: RC-01
+    weight: 5
+    body: >
+      Your hardship form asks for {count} documents including three months of
+      payslips. I have been made redundant. I do not have payslips. There is no
+      option on the form for that and no way to explain. I have sent an email
+      explaining and had no reply for {weeks} weeks.
+
+  - id: THM-07-c
+    theme: THM-07
+    root_cause: RC-03
+    weight: 5
+    body: >
+      I was told over the phone on {date} that my repayments would be reduced to
+      ${amount} for three months. The full amount came out anyway. When I called
+      back, the person said no arrangement existed on my file. I have the call
+      reference number.
+
+  - id: THM-07-d
+    theme: THM-07
+    root_cause: RC-07
+    weight: 4
+    body: >
+      I have been trying to reach the hardship team since {date}. The number goes
+      to a queue that disconnects after {minutes} minutes. The online form
+      returns an error. Emails get an auto reply saying five working days and
+      then nothing. I am trying to do the right thing here and I cannot get
+      through to anyone.
+
+  - id: THM-07-e
+    theme: THM-07
+    root_cause: RC-03
+    weight: 3
+    body: >
+      I explained my situation to three different people and each time I had to
+      start from the beginning. The last person told me the hardship arrangement
+      I agreed to in {month} was never activated. Nobody can tell me why. In the
+      meantime the arrears have grown.
+
+  # ---------------------------------------------------------------------------
+  # THM-08: Collections and recovery
+  # ---------------------------------------------------------------------------
+  - id: THM-08-a
+    theme: THM-08
+    root_cause: RC-02
+    weight: 2
+    body: >
+      I have been called about an arrears balance that I paid in full on {date}.
+      I have the receipt. The calls have continued daily for {weeks} weeks. Each
+      time I explain, they apologise, and the next day it happens again.
+
+  - id: THM-08-b
+    theme: THM-08
+    root_cause: RC-02
+    weight: 2
+    body: >
+      My credit file shows a default that should not be there. The amount was
+      disputed and the dispute was upheld in {month}, but the default was never
+      removed. It is now affecting an application I have made elsewhere.
+
+  # ---------------------------------------------------------------------------
+  # THM-09: Product disclosure and communication
+  # ---------------------------------------------------------------------------
+  - id: THM-09-a
+    theme: THM-09
+    root_cause: RC-05
+    weight: 3
+    body: >
+      My term deposit rolled over automatically at a much lower rate on {date}.
+      I received nothing that told me this would happen, or if I did it was in
+      the middle of a statement I had no reason to read closely. ${amount} is now
+      locked in for another {months} months at a rate I would never have chosen.
+
+  - id: THM-09-b
+    theme: THM-09
+    root_cause: RC-04
+    weight: 3
+    body: >
+      The interest rate on my savings account dropped on {date}. I found out when
+      I looked at the statement. Apparently notice was given by a note on the
+      website. That is not notice. I moved the money because of the rate and now
+      the rate is gone.
+
+  - id: THM-09-c
+    theme: THM-09
+    root_cause: RC-05
+    weight: 2
+    body: >
+      I was told the {product} account had no withdrawal restrictions. There is a
+      limit of {count} withdrawals a month and a fee after that. It is in the
+      terms, which I accept, but the person who sold it to me said the opposite
+      when I asked the direct question.
+
+  # ---------------------------------------------------------------------------
+  # THM-10: Service and complaint handling
+  # ---------------------------------------------------------------------------
+  - id: THM-10-a
+    theme: THM-10
+    root_cause: RC-03
+    weight: 3
+    body: >
+      This is the {count} time I have explained the same issue to a new person
+      with no record of the previous conversations. Each one apologises and
+      promises a call back. I have had no call back. I no longer believe anything
+      is being recorded at all.
+
+  - id: THM-10-b
+    theme: THM-10
+    root_cause: RC-07
+    weight: 3
+    body: >
+      I lodged a complaint on {date} and was told twenty working days. It has
+      been {weeks} weeks. I have chased three times. Each time I am told it is
+      with the case team. Nobody has ever given me a name or a direct number.
+
+  - id: THM-10-c
+    theme: THM-10
+    root_cause: RC-05
+    weight: 3
+    body: >
+      Three different people have given me three different answers about whether
+      I am eligible for the {product} account. One said yes, one said no, one
+      said it depends on something they could not explain. I still do not know
+      where I stand.
+
+  - id: THM-10-d
+    theme: THM-10
+    root_cause: RC-01
+    weight: 3
+    body: >
+      My complaint was closed without anyone contacting me. I received a letter
+      on {date} saying the matter was resolved to my satisfaction. It was not
+      resolved and I was never asked. Closing a complaint you have not discussed
+      with the customer is not resolving it.
