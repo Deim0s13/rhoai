@@ -131,3 +131,7 @@ Stated so their absence is not mistaken for an oversight:
   is documented.
 - Workflow tooling for the review queue. The routing decision and its evidence
   are the demonstrated control, not the case management around it.
+
+## Open decision — theme dashboard weighting.
+
+Synthetic data deliberately weights digital and hardship themes to dominate. The dashboard must decide whether to foreground that skew (supports the "systemic issue" narrative) or normalise it (avoids looking like a cherry-picked demo). Decide before wireframing view 2 in earnest.

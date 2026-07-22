@@ -11,7 +11,14 @@ brew install minio/stable/mc gettext && brew link --force gettext
 brew install pipx && pipx ensurepath
 pipx install ansible-core
 pipx install "huggingface_hub[cli]"
+
+# Python deps for synthetic data generation. Install for the SAME python3 the
+# seed scripts run under (your system python3, NOT Ansible's pipx venv).
+python3 -m pip install --user pyyaml reportlab --break-system-packages
+python3 -c "import yaml, reportlab; print('deps ok')"
 ```
+
+````
 
 ## 2. Log in and set credentials
 
@@ -22,7 +29,7 @@ export MINIO_ACCESS_KEY='minio-admin'
 export MINIO_SECRET_KEY='<choose-a-password>'    # quote it; a trailing ! breaks unquoted
 export POSTGRES_PASSWORD='<choose-a-password>'   # Llama Stack metadata store (RHOAI 3.2+)
 export HF_TOKEN='<hf-token>'
-```
+````
 
 Keep these in ONE terminal tab for the whole run. Lost exports were the single
 biggest time sink in the first live session.

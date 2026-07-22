@@ -1,0 +1,60 @@
+{"complaint_id": "CMP-0192", "theme_id": "THM-07", "root_cause_id": "RC-01", "candidate_theme_id": "THM-08", "ambiguous": true}
+{"complaint_id": "CMP-0191", "theme_id": "THM-05", "root_cause_id": "RC-01", "candidate_theme_id": "THM-04", "ambiguous": true}
+{"complaint_id": "CMP-0194", "theme_id": "THM-10", "root_cause_id": "RC-03", "candidate_theme_id": "THM-07", "ambiguous": true}
+{"complaint_id": "CMP-0195", "theme_id": "THM-02", "root_cause_id": "RC-03", "candidate_theme_id": "THM-09", "ambiguous": true}
+{"complaint_id": "CMP-0198", "theme_id": "THM-01", "root_cause_id": "RC-01", "candidate_theme_id": "THM-03", "ambiguous": true}
+{"complaint_id": "CMP-0201", "theme_id": "THM-05", "root_cause_id": "RC-02", "candidate_theme_id": "THM-04", "ambiguous": true}
+{"complaint_id": "CMP-0204", "theme_id": "THM-10", "root_cause_id": "RC-03", "candidate_theme_id": "THM-07", "ambiguous": true}
+{"complaint_id": "CMP-0197", "theme_id": "THM-07", "root_cause_id": "RC-03", "candidate_theme_id": "THM-08", "ambiguous": true}
+{"complaint_id": "CMP-0205", "theme_id": "THM-05", "root_cause_id": "RC-02", "expect_blocked": true}
+{"complaint_id": "CMP-0202", "theme_id": "THM-07", "root_cause_id": "RC-01", "candidate_theme_id": "THM-08", "ambiguous": true}
+{"complaint_id": "CMP-0196", "theme_id": "THM-05", "root_cause_id": "RC-03", "candidate_theme_id": "THM-04", "ambiguous": true}
+{"complaint_id": "CMP-0200", "theme_id": "THM-02", "root_cause_id": "RC-02", "candidate_theme_id": "THM-09", "ambiguous": true}
+{"complaint_id": "CMP-0206", "theme_id": "THM-05", "root_cause_id": "RC-02", "expect_blocked": true}
+{"complaint_id": "CMP-0190", "theme_id": "THM-02", "root_cause_id": "RC-01", "candidate_theme_id": "THM-09", "ambiguous": true}
+{"complaint_id": "CMP-0199", "theme_id": "THM-10", "root_cause_id": "RC-05", "candidate_theme_id": "THM-07", "ambiguous": true}
+{"complaint_id": "CMP-0203", "theme_id": "THM-01", "root_cause_id": "RC-06", "candidate_theme_id": "THM-03", "ambiguous": true}
+{"complaint_id": "CMP-0193", "theme_id": "THM-01", "root_cause_id": "RC-03", "candidate_theme_id": "THM-03", "ambiguous": true}
+{"complaint_id": "CMP-0163", "theme_id": "THM-07", "root_cause_id": "RC-07"}
+{"complaint_id": "CMP-0092", "theme_id": "THM-05", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0064", "theme_id": "THM-07", "root_cause_id": "RC-03"}
+{"complaint_id": "CMP-0067", "theme_id": "THM-05", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0129", "theme_id": "THM-02", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0080", "theme_id": "THM-06", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0093", "theme_id": "THM-03", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0083", "theme_id": "THM-10", "root_cause_id": "RC-03"}
+{"complaint_id": "CMP-0111", "theme_id": "THM-04", "root_cause_id": "RC-07"}
+{"complaint_id": "CMP-0110", "theme_id": "THM-05", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0073", "theme_id": "THM-07", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0139", "theme_id": "THM-09", "root_cause_id": "RC-05"}
+{"complaint_id": "CMP-0114", "theme_id": "THM-02", "root_cause_id": "RC-04"}
+{"complaint_id": "CMP-0060", "theme_id": "THM-01", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0116", "theme_id": "THM-07", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0169", "theme_id": "THM-04", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0186", "theme_id": "THM-08", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0089", "theme_id": "THM-07", "root_cause_id": "RC-03"}
+{"complaint_id": "CMP-0113", "theme_id": "THM-05", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0013", "theme_id": "THM-06", "root_cause_id": "RC-03"}
+{"complaint_id": "CMP-0180", "theme_id": "THM-09", "root_cause_id": "RC-05"}
+{"complaint_id": "CMP-0015", "theme_id": "THM-05", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0017", "theme_id": "THM-05", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0189", "theme_id": "THM-04", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0005", "theme_id": "THM-06", "root_cause_id": "RC-07"}
+{"complaint_id": "CMP-0053", "theme_id": "THM-01", "root_cause_id": "RC-07"}
+{"complaint_id": "CMP-0062", "theme_id": "THM-07", "root_cause_id": "RC-03"}
+{"complaint_id": "CMP-0014", "theme_id": "THM-04", "root_cause_id": "RC-06"}
+{"complaint_id": "CMP-0034", "theme_id": "THM-07", "root_cause_id": "RC-07"}
+{"complaint_id": "CMP-0157", "theme_id": "THM-07", "root_cause_id": "RC-03"}
+{"complaint_id": "CMP-0070", "theme_id": "THM-01", "root_cause_id": "RC-06"}
+{"complaint_id": "CMP-0074", "theme_id": "THM-05", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0018", "theme_id": "THM-02", "root_cause_id": "RC-04"}
+{"complaint_id": "CMP-0146", "theme_id": "THM-09", "root_cause_id": "RC-04"}
+{"complaint_id": "CMP-0179", "theme_id": "THM-09", "root_cause_id": "RC-05"}
+{"complaint_id": "CMP-0085", "theme_id": "THM-05", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0020", "theme_id": "THM-05", "root_cause_id": "RC-03"}
+{"complaint_id": "CMP-0107", "theme_id": "THM-06", "root_cause_id": "RC-04"}
+{"complaint_id": "CMP-0140", "theme_id": "THM-07", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0021", "theme_id": "THM-05", "root_cause_id": "RC-02"}
+{"complaint_id": "CMP-0147", "theme_id": "THM-04", "root_cause_id": "RC-06"}
+{"complaint_id": "CMP-0160", "theme_id": "THM-05", "root_cause_id": "RC-01"}
+{"complaint_id": "CMP-0106", "theme_id": "THM-05", "root_cause_id": "RC-01"}

@@ -10,15 +10,22 @@
 # generation, only for the upload. UC01 learnings applied: --api s3v4, and
 # idempotency checked on mc stdout content rather than return code.
 
-- name: Ensure Python dependencies for generation are present
-  ansible.builtin.pip:
-    name:
-      - pyyaml
-      - reportlab
-    state: present
-    extra_args: --user
-  # If the controller manages Python differently, this can be a documented
-  # prerequisite instead; kept here so a fresh machine seeds without extra steps.
+- name: Check Python generation dependencies are available
+  ansible.builtin.command: python3 -c "import yaml, reportlab"
+  register: pydeps
+  failed_when: false
+  changed_when: false
+
+- name: Fail clearly if generation dependencies are missing
+  ansible.builtin.assert:
+    that: pydeps.rc == 0
+    fail_msg: >
+      python3 is missing pyyaml and/or reportlab, needed to generate the
+      synthetic dataset. Install them for YOUR python3 (not Ansible's venv):
+        python3 -m pip install --user pyyaml reportlab --break-system-packages
+      Then re-run this playbook. Note: Ansible's pip module targets Ansible's
+      own pipx virtualenv, which is the wrong interpreter for these scripts;
+      that is why this is a check rather than an install.
 
 - name: Generate the synthetic complaint dataset
   ansible.builtin.command:

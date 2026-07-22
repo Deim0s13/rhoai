@@ -14,6 +14,13 @@ does not change the decision: it reinforces it. The telemetry story changed
 across one major version, while the evidence record schema did not. Evidence we
 write deliberately survives platform churn; telemetry we inherit does not.
 
+**Update 2026-07-22:** `docs/demo-experience.md` view 3 (review queue) commits
+to showing the reason a classification was routed for review and the
+candidate themes the model was torn between. The schema below did not carry
+fields for either. Amended to add `review_reason` and `candidate_themes`, so
+the demo-experience commitment is satisfiable rather than aspirational, the
+same standard this ADR already holds itself to for the audit-trail rows.
+
 ## Context
 
 The controls alignment matrix commits this use case to several evidence rows:
@@ -65,6 +72,8 @@ structured record per complaint, deliberately, as a first-class artefact:
   "confidence": 0.83,
   "citation": { "start": 142, "end": 210, "text": "..." },
   "routed_to_review": false,
+  "review_reason": null,
+  "candidate_themes": [],
   "pii_detected": true,
   "pii_redactions": 2,
   "injection_blocked": false,
@@ -75,6 +84,14 @@ structured record per complaint, deliberately, as a first-class artefact:
   "trace_id": "033246531d0d397f0c6667a049eba028"
 }
 ```
+
+- **`review_reason` and `candidate_themes`** are populated only when
+  `routed_to_review` is true. `review_reason` is free text produced by the
+  model at classification time, describing why confidence fell below
+  threshold. No fixed taxonomy of reasons is imposed; constraining it to an
+  enum is a future refinement if free text proves inconsistent in practice,
+  not a day-one requirement. `candidate_themes` lists the theme IDs the model
+  weighed, ordered by score.
 
 - **Written to:** JSONL in MinIO (`s3://evidence/classifications/`). Durable,
   trivially exportable, no new infrastructure, and export is a bucket copy,
@@ -139,3 +156,6 @@ MLflow experiment structure the draft proposed.
 - **Convergence cost, per ADR-0001**, stays low: the evidence record is
   self-describing JSON with a trace_id join. Any control-plane work that later
   wants it can consume it.
+- **Amended 2026-07-22** to add `review_reason` and `candidate_themes`,
+  closing a gap where `docs/demo-experience.md` had committed to displaying
+  fields the schema did not carry.

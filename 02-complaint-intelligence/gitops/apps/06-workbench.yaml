@@ -1,0 +1,20 @@
+---
+# Provisions the evidence bucket ADR-0004 writes to. Kept as its own role
+# rather than folded into seed_synthetic_data: this is pipeline output
+# infrastructure, not dataset seeding, and the two have different lifecycles
+# (this bucket persists and accumulates; synthetic data is regenerated).
+
+- name: Ensure MinIO alias (s3v4; auto-probe dies through the router)
+  ansible.builtin.command: >
+    mc alias set --api s3v4 uc02 http://{{ minio_endpoint }}
+    {{ minio_access_key }} {{ minio_secret_key }}
+  changed_when: false
+
+- name: Ensure the evidence bucket exists
+  ansible.builtin.command: mc mb --ignore-existing uc02/evidence
+  changed_when: false
+
+- name: Verify the bucket is reachable
+  ansible.builtin.command: mc ls uc02/evidence
+  register: evidence_bucket_check
+  changed_when: false

@@ -1,0 +1,51 @@
+# Workbench (Jupyter) for the classification notebook. Standard data science
+# image; heavy compute is the InferenceService, not this pod. The taxonomy
+# ConfigMap is mounted read-only rather than fetched over the network, since
+# it is already seeded in-cluster by the seed_taxonomy Ansible role.
+apiVersion: kubeflow.org/v1
+kind: Notebook
+metadata:
+  name: complaint-intelligence-workbench
+  namespace: complaint-intelligence
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+  annotations:
+    notebooks.opendatahub.io/inject-oauth: "true"
+spec:
+  template:
+    spec:
+      containers:
+        - name: complaint-intelligence-workbench
+          image: registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9@sha256:128879eb003be1d01c721bba289d2fce6adf74695c738247076704fd461a3fc8
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+          volumeMounts:
+            - name: workbench-storage
+              mountPath: /opt/app-root/src
+            - name: taxonomy
+              mountPath: /opt/app-root/taxonomy
+              readOnly: true
+      volumes:
+        - name: workbench-storage
+          persistentVolumeClaim:
+            claimName: complaint-intelligence-workbench-pvc
+        - name: taxonomy
+          configMap:
+            name: taxonomy
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: complaint-intelligence-workbench-pvc
+  namespace: complaint-intelligence
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

@@ -89,7 +89,8 @@ implementation decisions flow directly from it:
   work inexpensive.
 - **Output schema.** Every classification emits a single structured record:
   `theme`, `root_cause`, `confidence`, `citation`, `prompt_version`,
-  `model_version`, `taxonomy_version`. No output path bypasses this schema.
+  `model_version`, `taxonomy_version`, and, when routed for review,
+  `review_reason` and `candidate_themes`. No output path bypasses this schema.
 - **Mock PII conventions.** Synthetic data uses documented fake-PII patterns
   (names, card-style numbers, phone numbers) defined alongside the data
   generation scripts, so guardrail demonstrations are deterministic and
