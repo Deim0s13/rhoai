@@ -121,3 +121,72 @@ it would guarantee breakage on the next.
 - **The RAG stack is Technology Preview in RHOAI 3.4**, unlike guardrails, MaaS
   and MLflow which are GA. This must be stated honestly in any customer
   conversation about production timelines.
+
+## Addendum 2026-07-22: retrieval design
+
+Confirms architecture.md's stated position ("parsed complaints embedded
+alongside the taxonomy, forming the knowledge layer") and resolves how.
+
+### Decision: one vector store, not two
+
+A single store, not separate stores for taxonomy and complaints. Each
+document carries a `kind` metadata field (`taxonomy` or `complaint`).
+Reasoning: one store is one thing to create, version, and reason about
+operationally; the OpenAI-native search API supports metadata filtering, so
+a single store doesn't force mixed, undifferentiated retrieval.
+
+### Decision: two filtered searches per classification, not one mixed search
+
+At classification time, run two separate `search` calls against the same
+store: one filtered to `kind=taxonomy` (top-k 3), one filtered to
+`kind=complaint` (top-k 3). Combine into the prompt as two clearly labeled
+sections ("Relevant taxonomy guidance" / "Similar past complaints"), not one
+undifferentiated block.
+
+Rejected: a single unfiltered search across both. At this corpus size (17
+taxonomy documents, 200 complaints), an unfiltered top-k search skews
+toward whichever category dominates semantically for a given complaint,
+risking a classification that sees three similar complaints and zero
+taxonomy guidance, or the reverse. Filtering costs one extra API call per
+classification and removes that risk entirely.
+
+### What gets embedded: taxonomy
+
+One document per theme (10) and one per root cause (7), 17 total. Each
+embeds its `definition`, `includes`, `excludes`, and `examples` fields
+concatenated, matching taxonomy.yaml's own stated intent that these fields
+"are retrieval content... the primary lever for classification quality with
+a small model."
+
+Metadata per taxonomy document:
+
+```json
+{
+  "kind": "taxonomy",
+  "item_type": "theme",
+  "id": "THM-05",
+  "name": "...",
+  "taxonomy_version": "0.1.0"
+}
+```
+
+### What gets embedded: complaints
+
+One document per complaint record, embedding `body` directly. No chunking:
+synthetic complaint bodies are single short paragraphs, not the
+multi-page regulatory documents UC01's chunking strategy was designed for.
+Chunking here would be complexity with no corresponding benefit.
+
+Metadata per complaint document:
+
+```json
+{ "kind": "complaint", "complaint_id": "CMP-0031", "channel": "...", "received_date": "..." }
+```
+
+### Build implication
+
+Cell 7 (currently a route-discovery placeholder) becomes two things: a
+one-time store creation and population step (idempotent, check-if-exists),
+and a per-classification retrieval step inserted before Cell 8, replacing
+the empty `retrieved_context` string with the two labeled, filtered search
+results.

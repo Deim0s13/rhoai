@@ -125,6 +125,38 @@ wrong. Worth a brief schema comment at the top of any future ingestion code
 pointing directly at `generate.py`'s `public_fields` definition as the
 source of truth, rather than each new consumer re-guessing the shape.
 
+### 6. Vector store file listing paginates at 20 with a silently-ignored `limit`
+
+**Expected:** `GET /v1/vector_stores/{id}/files` returns all attached files,
+or at least respects a `limit` query parameter to expand the page.
+**Happened:** defaults to 20 results per page; passing `limit=250` was
+silently ignored (returned 0 results, not an error). The real pagination
+mechanism is a cursor: pass `after=<last_file_id_from_previous_page>` to
+get the next page.
+**Implication:** any code listing vector store files (population idempotency
+checks, admin/debug tooling) must paginate properly via `after`/`has_more`,
+not assume a single call returns everything. Two findings now share this
+shape (this one, and the filters flat-dict issue): parameters that don't
+match this API's actual expected schema tend to fail silently rather than
+with an error, worth treating with suspicion generally on this stack.
+
 ---
 
 ## Working endpoint reference (addendum to 2026-07-15)
+
+\## Addendum: automation fixes validated live
+
+Both fixes from the "resume point" above were implemented and tested in the
+same session, not left as untested proposals:
+
+- `model_fetch`'s new predictor-readiness guard correctly skipped restarting
+  an already-healthy predictor (idempotent, as intended).
+- `sync_llama_stack` restarted Llama Stack and it discovered Granite
+  without any manual intervention.
+- Full notebook re-run (`01-classify-complaint.ipynb`, Cells 1-11) completed
+  with no errors, no manual restarts, no live debugging. First genuinely
+  clean unattended run this session.
+
+Status table above should read: workbench access, model serving, and
+notebook execution all now reproducible from `ansible-playbook
+ansible/site.yml` alone, no follow-up commands required.
