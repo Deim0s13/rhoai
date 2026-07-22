@@ -102,3 +102,20 @@
 - name: Report seeded state
   ansible.builtin.debug:
     msg: "Model present in MinIO: {{ upload_check.stdout | int }} safetensors files"
+
+- name: Check whether the predictor is currently ready
+  ansible.builtin.shell: >
+    oc get pods -n {{ uc02_namespace }}
+    -l serving.kserve.io/inferenceservice={{ inference_service_name }}
+    -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "absent"
+  register: predictor_ready
+  changed_when: false
+  failed_when: false
+
+- name: Restart the predictor if it exists but isn't ready
+  ansible.builtin.command: >
+    oc delete pod -n {{ uc02_namespace }}
+    -l serving.kserve.io/inferenceservice={{ inference_service_name }}
+    --ignore-not-found
+  when: predictor_ready.stdout | trim != "true"
+  changed_when: true

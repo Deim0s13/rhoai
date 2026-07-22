@@ -23,6 +23,7 @@
     model_bucket: models
     model_prefix: granite-3.3-8b-instruct
     model_local_dir: "/tmp/{{ model_prefix }}"
+    inference_service_name: granite-3-3-8b-instruct # DNS-safe name; distinct from model_prefix, which has dots
 
   pre_tasks:
     - name: Fail early if credentials are missing

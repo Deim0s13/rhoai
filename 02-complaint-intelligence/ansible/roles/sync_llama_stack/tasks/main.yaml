@@ -1,0 +1,39 @@
+---
+# Restarts Llama Stack after confirming the predictor it depends on is
+# genuinely ready, closing the second half of the startup-ordering race
+# (see DEPLOYMENT-LOG-2026-07-22): Llama Stack's /v1/models discovery
+# reflects provider state at its own pod startup, not continuously, so
+# starting it before Granite is ready leaves Granite permanently missing
+# from discovery until something restarts Llama Stack.
+#
+# Runs last in site.yml, after model_fetch has already restarted the
+# predictor if needed (see model_fetch/tasks/main.yml).
+
+- name: Wait for the predictor to be ready
+  ansible.builtin.command: >
+    oc get pods -n {{ uc02_namespace }}
+    -l serving.kserve.io/inferenceservice={{ inference_service_name }}
+    -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+  register: predictor_ready_check
+  until: predictor_ready_check.stdout | trim == "true"
+  retries: 30
+  delay: 20
+  changed_when: false
+
+- name: Restart Llama Stack so it re-discovers the now-ready predictor
+  ansible.builtin.command: >
+    oc delete pod -n {{ uc02_namespace }}
+    -l app=llama-stack,app.kubernetes.io/instance=lsd-complaint-intelligence
+    --ignore-not-found
+  changed_when: true
+
+- name: Wait for Llama Stack to be ready again
+  ansible.builtin.command: >
+    oc get pods -n {{ uc02_namespace }}
+    -l app=llama-stack,app.kubernetes.io/instance=lsd-complaint-intelligence
+    -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+  register: llama_stack_ready_check
+  until: llama_stack_ready_check.stdout | trim == "true"
+  retries: 20
+  delay: 15
+  changed_when: false

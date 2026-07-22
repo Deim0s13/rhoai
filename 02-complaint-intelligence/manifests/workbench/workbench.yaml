@@ -18,6 +18,10 @@ spec:
       containers:
         - name: complaint-intelligence-workbench
           image: registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9@sha256:128879eb003be1d01c721bba289d2fce6adf74695c738247076704fd461a3fc8
+          ports:
+            - containerPort: 8888
+              name: notebook-port
+              protocol: TCP
           resources:
             requests:
               cpu: "1"

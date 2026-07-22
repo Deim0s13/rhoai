@@ -18,8 +18,6 @@ python3 -m pip install --user pyyaml reportlab --break-system-packages
 python3 -c "import yaml, reportlab; print('deps ok')"
 ```
 
-````
-
 ## 2. Log in and set credentials
 
 ```bash
@@ -29,7 +27,7 @@ export MINIO_ACCESS_KEY='minio-admin'
 export MINIO_SECRET_KEY='<choose-a-password>'    # quote it; a trailing ! breaks unquoted
 export POSTGRES_PASSWORD='<choose-a-password>'   # Llama Stack metadata store (RHOAI 3.2+)
 export HF_TOKEN='<hf-token>'
-````
+```
 
 Keep these in ONE terminal tab for the whole run. Lost exports were the single
 biggest time sink in the first live session.
@@ -60,24 +58,15 @@ what to fix; it will not leave a half-broken cluster behind.
 
 ## 4. Seed
 
-```bash
-ansible-playbook ansible/site.yml
-```
+    ansible-playbook ansible/site.yml
 
-Discovers the MinIO Route itself, downloads the model (~16GiB, roughly 15 to 20
-minutes), mirrors it into MinIO (resumable), and verifies both. No manual
-endpoint export, no port-forward.
+Discovers the MinIO Route itself, downloads the model (~16GiB, roughly 15 to
+20 minutes), mirrors it into MinIO, restarts the predictor once weights are
+confirmed complete, waits for it to be ready, then restarts Llama Stack so
+it discovers the now-ready model. Fully automated; no manual pod restarts
+or verification steps needed after this command finishes.
 
-## 5. Start serving
-
-```bash
-oc delete pod -l serving.kserve.io/inferenceservice=granite-3-3-8b-instruct
-oc get pods -w
-```
-
-The predictor pulls from MinIO and loads the weights onto the GPU.
-
-## 6. Verify
+## 5. Verify
 
 ```bash
 oc port-forward svc/granite-3-3-8b-instruct-predictor 8081:80 &
@@ -85,6 +74,33 @@ sleep 3
 curl -s http://localhost:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"granite-3-3-8b-instruct","messages":[{"role":"user","content":"Say: ready"}],"max_tokens":10}'
+```
+
+## 6. Start the workbench
+
+```bash
+oc apply -f manifests/workbench/workbench.yaml -n complaint-intelligence
+oc get pods -n complaint-intelligence -l notebook-name=complaint-intelligence-workbench -w
+```
+
+Wait for `1/1 Running`, then confirm the taxonomy mount:
+
+```bash
+oc exec -n complaint-intelligence complaint-intelligence-workbench-0 -- ls /opt/app-root/taxonomy
+```
+
+External access via the RHOAI dashboard and the Gateway URL does not work on
+this platform version (see "Do not" and the troubleshooting table). Use
+port-forward instead:
+
+```bash
+oc port-forward svc/complaint-intelligence-workbench -n complaint-intelligence 8888:80
+```
+
+Open `http://localhost:8888`. Get the login token:
+
+```bash
+oc logs complaint-intelligence-workbench-0 -n complaint-intelligence | grep -i token
 ```
 
 ## Do not
@@ -100,15 +116,23 @@ curl -s http://localhost:8081/v1/chat/completions \
   not survive a rebuild.
 - **Do not trust `oc get applications`.** Use `oc get applications.argoproj.io`;
   the short name can resolve to a different CRD.
+- **Do not use the RHOAI dashboard's Open button for this workbench.**
+  Broken on 3.4.2 for hand-applied Notebook objects; use port-forward
+  (step 7).
+- **Do not add a Route to work around the broken Gateway URL.** A
+  controller-generated NetworkPolicy blocks it by design; port-forward is
+  the only working path.
 
 ## If something fails
 
-| Symptom                                                    | Cause                                        | Fix                                                                                                                     |
-| ---------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Access Key Id ... does not exist`                         | MinIO running stale/placeholder credentials  | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio` |
-| `Unauthorized` on every oc command                         | Token expired (RHDP tokens are short)        | Fresh `oc login`                                                                                                        |
-| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket` | Model not seeded yet                         | Expected before step 4; ignore                                                                                          |
-| Predictor `Pending` forever                                | GPU label mismatch                           | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                            |
-| Route "created" then "not found"                           | Created via `oc expose` in an Argo namespace | Apply the committed manifest instead                                                                                    |
-| `mc` TLS error over http                                   | Router forces edge TLS                       | The Ansible role falls back to https automatically                                                                      |
-| `no matches for kind "LlamaStackDistribution"`             | Component still `Removed`; CRD absent        | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                             |
+| Symptom                                                      | Cause                                                                      | Fix                                                                                                                     |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `Access Key Id ... does not exist`                           | MinIO running stale/placeholder credentials                                | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio` |
+| `Unauthorized` on every oc command                           | Token expired (RHDP tokens are short)                                      | Fresh `oc login`                                                                                                        |
+| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket`   | Model not seeded yet                                                       | Expected before step 4; ignore                                                                                          |
+| Predictor `Pending` forever                                  | GPU label mismatch                                                         | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                            |
+| Route "created" then "not found"                             | Created via `oc expose` in an Argo namespace                               | Apply the committed manifest instead                                                                                    |
+| `mc` TLS error over http                                     | Router forces edge TLS                                                     | The Ansible role falls back to https automatically                                                                      |
+| `no matches for kind "LlamaStackDistribution"`               | Component still `Removed`; CRD absent                                      | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                             |
+| Workbench URL returns 500 / "Application is unavailable"     | Gateway HTTPRoute port bug (3.4.2 controller defect)                       | Use port-forward (step 7), not the Gateway URL                                                                          |
+| Dashboard shows "migration required, image unknown, deleted" | Cosmetic; hand-applied Notebook lacks dashboard image-tracking annotations | Ignore; check pod directly with `oc get pods -l notebook-name=complaint-intelligence-workbench`                         |
