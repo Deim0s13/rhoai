@@ -9,6 +9,7 @@ metadata:
   namespace: complaint-intelligence
   labels:
     app.kubernetes.io/part-of: rhoai-presales-lab
+    opendatahub.io/dashboard: "true"
   annotations:
     notebooks.opendatahub.io/inject-oauth: "true"
 spec:
@@ -24,6 +25,17 @@ spec:
             limits:
               cpu: "2"
               memory: "8Gi"
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
           volumeMounts:
             - name: workbench-storage
               mountPath: /opt/app-root/src
