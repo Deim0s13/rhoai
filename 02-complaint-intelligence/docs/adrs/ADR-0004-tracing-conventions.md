@@ -21,6 +21,20 @@ fields for either. Amended to add `review_reason` and `candidate_themes`, so
 the demo-experience commitment is satisfiable rather than aspirational, the
 same standard this ADR already holds itself to for the audit-trail rows.
 
+**Update 2026-07-23:** Live testing against the 200-record corpus (see
+DEPLOYMENT-LOG-2026-07-22) found the model's self-reported `confidence`
+never dropped below 0.8, even on complaints the synthetic data was
+deliberately designed to be ambiguous. Confidence-threshold routing alone
+is therefore not a usable signal.
+
+`candidate_themes` is amended from an array of theme IDs to an array of
+`{theme_id, score}` objects, and is now always populated (previously only
+when `routed_to_review` was true), since the score spread across candidates
+is now load-bearing for the routing decision, not just review-queue
+display. `routed_to_review` now triggers on confidence below threshold OR
+a narrow gap between the top two candidate scores; `review_reason` states
+which condition fired.
+
 ## Context
 
 The controls alignment matrix commits this use case to several evidence rows:
