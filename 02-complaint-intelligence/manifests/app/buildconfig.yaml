@@ -1,0 +1,28 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: complaint-intelligence-app
+  namespace: complaint-intelligence
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: complaint-intelligence-app
+  namespace: complaint-intelligence
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/Deim0s13/rhoai.git
+      ref: main
+    contextDir: 02-complaint-intelligence
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: app/Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: complaint-intelligence-app:latest
+  triggers:
+    - type: ConfigChange

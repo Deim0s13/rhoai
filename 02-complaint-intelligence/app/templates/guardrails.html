@@ -1,0 +1,27 @@
+{% extends "base.html" %} {% block title %}Guardrails — Complaint Intelligence{% endblock %} {%
+block content %}
+<h1>Guardrails in action</h1>
+<p class="subtitle">
+  PII is detected and redacted before a complaint reaches the model or the vector store. Shown here
+  as before and after, on a real classified complaint.
+</p>
+
+{% if example %}
+<h2>{{ example.complaint_id }}</h2>
+<p class="subtitle">Before</p>
+<div class="complaint-text">{{ example.before }}</div>
+<p class="subtitle">After</p>
+<div class="complaint-text">{{ example.after }}</div>
+<span class="badge badge-redact">{{ example.pii_redactions }} item(s) redacted</span>
+<p><a href="{{ url_for('guardrails_demo') }}">Show another example →</a></p>
+{% else %}
+<div class="empty-state">No PII-carrying complaints classified yet.</div>
+{% endif %}
+
+<div class="warning-banner" style="margin-top: 32px">
+  This stack's guardrails orchestrator is configured with email and credit-card regex detectors
+  only. Prompt-injection detection is not currently configured; every evidence record honestly
+  reflects this (<code>injection_blocked: null</code>) rather than reporting a check that isn't
+  actually running.
+</div>
+{% endblock %}

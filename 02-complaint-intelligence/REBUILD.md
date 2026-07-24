@@ -103,7 +103,7 @@ Open `http://localhost:8888`. Get the login token:
 oc logs complaint-intelligence-workbench-0 -n complaint-intelligence | grep -i token
 ```
 
-## 8. Verify the pipeline
+## 7. Verify the pipeline
 
 ```bash
 WORKBENCH_POD=$(oc get pods -n complaint-intelligence \
@@ -121,6 +121,41 @@ rebuild: if it fails, the failure message names the specific broken
 stage (taxonomy mount, model discovery, vector store, guardrails, or
 the model call itself) rather than requiring notebook archaeology to
 find it.
+
+## 8. Build and deploy the app
+
+Requires step 4 to have fully completed, not just the complaints bucket
+seeded: `Pipeline().setup()` runs at container startup and discovers the
+model and creates the vector store, both only exist once the whole
+`ansible-playbook` run (including `sync_llama_stack`) has succeeded.
+Deploying before that finishes will crash-loop.
+
+```bash
+oc apply -f manifests/app/buildconfig.yaml -n complaint-intelligence
+oc start-build complaint-intelligence-app -n complaint-intelligence --follow
+```
+
+Wait for the build to complete (`--follow` streams the log; a failed
+build shows here, not as a confusing pod-level error later). Then:
+
+```bash
+oc apply -f manifests/app/deployment.yaml -n complaint-intelligence
+oc apply -f manifests/app/route.yaml -n complaint-intelligence
+oc get pods -n complaint-intelligence -l app=complaint-intelligence-app -w
+```
+
+Wait for `1/1 Running`. Get the URL:
+
+```bash
+oc get route complaint-intelligence-app -n complaint-intelligence \
+  -o jsonpath='{.spec.host}'
+```
+
+Open `https://<that-host>` in a browser. If the evidence bucket is still
+empty at this point (no batch run yet), the dashboard and review queue
+show their empty states correctly rather than erroring, that is expected,
+not a bug; classify a complaint via `/classify` or run the notebook's
+batch cell to populate real data.
 
 ## Do not
 
@@ -144,14 +179,16 @@ find it.
 
 ## If something fails
 
-| Symptom                                                      | Cause                                                                      | Fix                                                                                                                     |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Access Key Id ... does not exist`                           | MinIO running stale/placeholder credentials                                | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio` |
-| `Unauthorized` on every oc command                           | Token expired (RHDP tokens are short)                                      | Fresh `oc login`                                                                                                        |
-| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket`   | Model not seeded yet                                                       | Expected before step 4; ignore                                                                                          |
-| Predictor `Pending` forever                                  | GPU label mismatch                                                         | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                            |
-| Route "created" then "not found"                             | Created via `oc expose` in an Argo namespace                               | Apply the committed manifest instead                                                                                    |
-| `mc` TLS error over http                                     | Router forces edge TLS                                                     | The Ansible role falls back to https automatically                                                                      |
-| `no matches for kind "LlamaStackDistribution"`               | Component still `Removed`; CRD absent                                      | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                             |
-| Workbench URL returns 500 / "Application is unavailable"     | Gateway HTTPRoute port bug (3.4.2 controller defect)                       | Use port-forward (step 7), not the Gateway URL                                                                          |
-| Dashboard shows "migration required, image unknown, deleted" | Cosmetic; hand-applied Notebook lacks dashboard image-tracking annotations | Ignore; check pod directly with `oc get pods -l notebook-name=complaint-intelligence-workbench`                         |
+| Symptom                                                      | Cause                                                                                                         | Fix                                                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Access Key Id ... does not exist`                           | MinIO running stale/placeholder credentials                                                                   | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio`    |
+| `Unauthorized` on every oc command                           | Token expired (RHDP tokens are short)                                                                         | Fresh `oc login`                                                                                                           |
+| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket`   | Model not seeded yet                                                                                          | Expected before step 4; ignore                                                                                             |
+| Predictor `Pending` forever                                  | GPU label mismatch                                                                                            | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                               |
+| Route "created" then "not found"                             | Created via `oc expose` in an Argo namespace                                                                  | Apply the committed manifest instead                                                                                       |
+| `mc` TLS error over http                                     | Router forces edge TLS                                                                                        | The Ansible role falls back to https automatically                                                                         |
+| `no matches for kind "LlamaStackDistribution"`               | Component still `Removed`; CRD absent                                                                         | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                                |
+| Workbench URL returns 500 / "Application is unavailable"     | Gateway HTTPRoute port bug (3.4.2 controller defect)                                                          | Use port-forward (step 7), not the Gateway URL                                                                             |
+| Dashboard shows "migration required, image unknown, deleted" | Cosmetic; hand-applied Notebook lacks dashboard image-tracking annotations                                    | Ignore; check pod directly with `oc get pods -l notebook-name=complaint-intelligence-workbench`                            |
+| App pod CrashLoopBackOff on startup                          | Deployed before step 4 finished; Pipeline().setup() failed discovering the model or creating the vector store | Confirm ansible-playbook completed fully, then `oc rollout restart deployment/complaint-intelligence-app`                  |
+| App build fails with "no such file: pipeline/classify.py"    | BuildConfig's contextDir or Containerfile COPY paths don't match                                              | Confirm `contextDir: 02-complaint-intelligence` in buildconfig.yaml and that Containerfile COPY paths are relative to that |

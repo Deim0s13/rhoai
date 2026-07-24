@@ -1,0 +1,24 @@
+FROM registry.access.redhat.com/ubi9/python-312:latest
+
+WORKDIR /opt/app-root/src
+
+# Dependencies first, for layer caching: this file changes far less often
+# than application code, so rebuilds after a code change reuse this layer.
+COPY app/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Shared classification module (ADR-0009), the single source of truth.
+# Same file the notebook imports via the pipeline-code ConfigMap; copied
+# in at build time here since this is a normal container build, not a
+# workbench needing a GitOps-native delivery mechanism.
+COPY pipeline/classify.py ./pipeline/classify.py
+
+COPY app/app.py .
+COPY app/templates ./templates
+COPY app/static ./static
+
+ENV PIPELINE_PATH=/opt/app-root/src/pipeline
+
+EXPOSE 8080
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "app:app"]

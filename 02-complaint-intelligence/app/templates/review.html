@@ -1,0 +1,26 @@
+{% extends "base.html" %} {% block title %}Review queue — Complaint Intelligence{% endblock %} {%
+block content %}
+<h1>Review queue</h1>
+<p class="subtitle">
+  Complaints the pipeline flagged as genuinely uncertain, either low confidence, or a close call
+  between two candidate themes, and routed to a human rather than guessed.
+</p>
+
+{% if rows %}
+<div class="ledger">
+  {% for row in rows %}
+  <a href="{{ url_for('evidence_detail', complaint_id=row.complaint_id) }}" class="ledger-row">
+    <div class="main">
+      <div class="id">{{ row.complaint_id }} · leaning {{ row.theme_id }}</div>
+      <div class="preview">{{ row.review_reason }}</div>
+    </div>
+    {% if row.candidate_themes %}
+    <span class="badge badge-neutral">vs {{ row.candidate_themes[0].theme_id }}</span>
+    {% endif %}
+    <span class="badge badge-review">{{ "%.2f"|format(row.confidence) }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">Nothing currently routed to review.</div>
+{% endif %} {% endblock %}

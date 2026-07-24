@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: complaint-intelligence-app
+  namespace: complaint-intelligence
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: complaint-intelligence-app
+  template:
+    metadata:
+      labels:
+        app: complaint-intelligence-app
+    spec:
+      containers:
+        - name: app
+          image: image-registry.openshift-image-registry.svc:5000/complaint-intelligence/complaint-intelligence-app:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+          volumeMounts:
+            - name: taxonomy
+              mountPath: /opt/app-root/taxonomy
+              readOnly: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: taxonomy
+          configMap:
+            name: taxonomy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: complaint-intelligence-app
+  namespace: complaint-intelligence
+spec:
+  selector:
+    app: complaint-intelligence-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

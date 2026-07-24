@@ -1,0 +1,41 @@
+{% extends "base.html" %} {% block title %}Classify — Complaint Intelligence{% endblock %} {% block
+content %}
+<h1>Classify a complaint</h1>
+<p class="subtitle">
+  Select a complaint to run it through guardrails, retrieval, and classification live. Complaints
+  already classified are marked; running classification again replaces their existing evidence
+  record.
+</p>
+
+<div class="ledger">
+  {% for row in rows %}
+  <form
+    action="{{ url_for('classify_run', complaint_id=row.complaint_id) }}"
+    method="post"
+    {%
+    if
+    row.current_theme
+    %}
+    onsubmit="return confirm('{{ row.complaint_id }} already has a confirmed classification ({{ row.current_theme }}). Running this again will replace it. Continue?')"
+    {%
+    endif
+    %}
+    class="ledger-row"
+    style="cursor: pointer"
+  >
+    <div class="main">
+      <div class="id">{{ row.complaint_id }}</div>
+      <div class="preview">{{ row.preview }}…</div>
+    </div>
+    {% if row.current_theme %}
+    <span class="badge badge-verified">Classified: {{ row.current_theme }}</span>
+    {% else %}
+    <span class="badge badge-neutral">Not yet classified</span>
+    {% endif %}
+    <button type="submit" class="btn">
+      {{ 're-classify' if row.current_theme else 'Classify' }}
+    </button>
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}

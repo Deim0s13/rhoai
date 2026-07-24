@@ -1,0 +1,27 @@
+{% extends "base.html" %} {% block title %}{{ theme.name }} — Complaint Intelligence{% endblock %}
+{% block content %}
+<h1>{{ theme.name }}</h1>
+<p class="subtitle">{{ theme.definition }}</p>
+
+<h2>{{ rows|length }} complaint{{ 's' if rows|length != 1 }}</h2>
+{% if rows %}
+<div class="ledger">
+  {% for row in rows %}
+  <a href="{{ url_for('evidence_detail', complaint_id=row.complaint_id) }}" class="ledger-row">
+    <div class="main">
+      <div class="id">{{ row.complaint_id }} · {{ row.channel }}</div>
+      <div class="preview">{{ row.root_cause }}</div>
+    </div>
+    {% if row.routed_to_review %}
+    <span class="badge badge-review">Review</span>
+    {% endif %}
+    <span class="badge badge-verified">{{ "%.2f"|format(row.confidence) }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">No complaints classified under this theme yet.</div>
+{% endif %}
+
+<p style="margin-top: 24px"><a href="{{ url_for('dashboard') }}">← Back to themes</a></p>
+{% endblock %}

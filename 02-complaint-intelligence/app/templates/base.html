@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Complaint Intelligence{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <nav class="nav">
+      <a class="nav-brand" href="{{ url_for('dashboard') }}">Complaint Intelligence</a>
+      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}"
+        >Themes</a
+      >
+      <a
+        href="{{ url_for('classify_picker') }}"
+        class="{{ 'active' if request.endpoint in ['classify_picker', 'classify_run'] }}"
+        >Classify</a
+      >
+      <a
+        href="{{ url_for('review_queue') }}"
+        class="{{ 'active' if request.endpoint == 'review_queue' }}"
+        >Review queue</a
+      >
+      <a
+        href="{{ url_for('guardrails_demo') }}"
+        class="{{ 'active' if request.endpoint == 'guardrails_demo' }}"
+        >Guardrails</a
+      >
+      <div class="spacer"></div>
+      <a href="{{ url_for('refresh') }}">Refresh</a>
+    </nav>
+    <main>{% block content %}{% endblock %}</main>
+  </body>
+</html>

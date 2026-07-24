@@ -1,0 +1,36 @@
+{% extends "base.html" %} {% block title %}Themes — Complaint Intelligence{% endblock %} {% block
+content %}
+<h1>Complaint themes</h1>
+<p class="subtitle">{{ total_complaints }} complaints, {{ total_classified }} classified.</p>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="value">{{ total_classified }}</div>
+    <div class="label">Classified</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{ routed_count }}</div>
+    <div class="label">Routed to review</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{ pii_count }}</div>
+    <div class="label">PII detected and redacted</div>
+  </div>
+</div>
+
+<h2>By theme</h2>
+{% if theme_rows %}
+<div class="ledger">
+  {% for row in theme_rows %}
+  <a href="{{ url_for('theme_detail', theme_id=row.id) }}" class="ledger-row">
+    <div class="main">
+      <div class="id">{{ row.id }}</div>
+      <div class="preview">{{ row.name }}</div>
+    </div>
+    <span class="badge badge-neutral">{{ row.count }} complaint{{ 's' if row.count != 1 }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">No complaints classified yet. Head to Classify to run the first one.</div>
+{% endif %} {% endblock %}

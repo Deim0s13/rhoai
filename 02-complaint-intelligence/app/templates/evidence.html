@@ -1,0 +1,75 @@
+{% extends "base.html" %} {% block title %}{{ record.complaint_id }} — Evidence{% endblock %} {%
+block content %}
+<h1>{{ record.complaint_id }}</h1>
+<p class="subtitle">Full evidence record, exportable, reviewable without platform access.</p>
+
+<h2>Source complaint</h2>
+<div class="complaint-text">
+  {% if cited %} {{ before }}<span class="citation">{{ cited }}</span
+  ><span class="stamp">{{ "%.2f"|format(record.confidence) }}</span>{{ after }} {% else %} {{ before
+  }} {% endif %}
+</div>
+
+<h2>Evidence</h2>
+<table class="evidence">
+  <tr>
+    <td>theme_id</td>
+    <td>{{ record.theme_id }}</td>
+  </tr>
+  <tr>
+    <td>root_cause_id</td>
+    <td>{{ record.root_cause_id }}</td>
+  </tr>
+  <tr>
+    <td>confidence</td>
+    <td>{{ record.confidence }}</td>
+  </tr>
+  <tr>
+    <td>citation_verified</td>
+    <td>{{ record.citation_verified }}</td>
+  </tr>
+  <tr>
+    <td>routed_to_review</td>
+    <td>{{ record.routed_to_review }}</td>
+  </tr>
+  <tr>
+    <td>review_reason</td>
+    <td>{{ record.review_reason or '—' }}</td>
+  </tr>
+  <tr>
+    <td>pii_detected</td>
+    <td>{{ record.pii_detected }} ({{ record.pii_redactions }})</td>
+  </tr>
+  <tr>
+    <td>injection_blocked</td>
+    <td>
+      {{ record.injection_blocked if record.injection_blocked is not none else 'not configured on
+      this stack' }}
+    </td>
+  </tr>
+  <tr>
+    <td>guardrail_policy_id</td>
+    <td>{{ record.guardrail_policy_id }}</td>
+  </tr>
+  <tr>
+    <td>prompt_version</td>
+    <td>{{ record.prompt_version }}</td>
+  </tr>
+  <tr>
+    <td>model_version</td>
+    <td>{{ record.model_version }}</td>
+  </tr>
+  <tr>
+    <td>taxonomy_version</td>
+    <td>{{ record.taxonomy_version }}</td>
+  </tr>
+  <tr>
+    <td>trace_id</td>
+    <td>{{ record.trace_id }}</td>
+  </tr>
+  <tr>
+    <td>timestamp</td>
+    <td>{{ record.timestamp }}</td>
+  </tr>
+</table>
+{% endblock %}
