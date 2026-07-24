@@ -264,18 +264,25 @@ class Pipeline:
             raise RuntimeError(f"Search failed ({resp.status_code}): {resp.text}")
         return resp.json().get("data", [])
 
-    def taxonomy_theme_ambiguity(self, body: str) -> dict:
-        """ADR-0004 review-routing signal: retrieval similarity,
-        independent of the LLM's self-report (three prompt-based
-        approaches and token-level logprobs were all tested and found
-        not to discriminate on this model)."""
+    def taxonomy_theme_ambiguity(self, chosen_theme_id: str, body: str) -> dict:
+        """ADR-0004 review-routing signal, corrected 2026-07-24: compares
+        the model's ACTUAL chosen theme against the next-best alternative
+        from retrieval, not a blind top-2 that could exclude the model's
+        own pick entirely. Found live via the deployed app's review queue
+        (not visible in raw JSON): a blind top-2 comparison regularly
+        named two themes unrelated to what the model actually chose,
+        since the original version computed this independently, with no
+        knowledge of the classification result. top_k=10 covers all 10
+        themes in the taxonomy, so the chosen theme's own retrieval score
+        is always present to compare against, by construction."""
         hits = self.search_by_kind(body, "taxonomy", top_k=10)
-        theme_hits = sorted(
-            [h for h in hits if h["attributes"].get("item_type") == "theme"],
-            key=lambda h: h["score"],
-            reverse=True,
-        )
-        if len(theme_hits) < 2:
+        theme_hits = {
+            h["attributes"]["id"]: h["score"]
+            for h in hits
+            if h["attributes"].get("item_type") == "theme"
+        }
+
+        if chosen_theme_id not in theme_hits or len(theme_hits) < 2:
             return {
                 "top_theme": None,
                 "top_score": None,
@@ -283,13 +290,20 @@ class Pipeline:
                 "second_score": None,
                 "delta": None,
             }
-        top, second = theme_hits[0], theme_hits[1]
+
+        chosen_score = theme_hits[chosen_theme_id]
+        others = {
+            tid: score for tid, score in theme_hits.items() if tid != chosen_theme_id
+        }
+        best_other_id = max(others, key=others.get)
+        best_other_score = others[best_other_id]
+
         return {
-            "top_theme": top["attributes"]["id"],
-            "top_score": top["score"],
-            "second_theme": second["attributes"]["id"],
-            "second_score": second["score"],
-            "delta": top["score"] - second["score"],
+            "top_theme": chosen_theme_id,
+            "top_score": chosen_score,
+            "second_theme": best_other_id,
+            "second_score": best_other_score,
+            "delta": chosen_score - best_other_score,
         }
 
     def lookup_classification(self, complaint_id: str):
@@ -420,7 +434,9 @@ citation_text must be copied verbatim from the complaint text above."""
             citation_verified = True
 
         confidence = classification["confidence"]
-        taxonomy_ambig = self.taxonomy_theme_ambiguity(redacted_body)
+        taxonomy_ambig = self.taxonomy_theme_ambiguity(
+            classification["theme_id"], redacted_body
+        )
 
         low_confidence = confidence < self.confidence_threshold
         narrow_margin = (
@@ -445,12 +461,12 @@ citation_text must be copied verbatim from the complaint text above."""
 
         candidate_theme_ids = []
         if narrow_margin:
-            candidate_theme_ids = [
-                {
-                    "theme_id": taxonomy_ambig["second_theme"],
-                    "score": taxonomy_ambig["second_score"],
-                }
-            ]
+            reasons.append(
+                f"chosen theme {taxonomy_ambig['top_theme']} ({taxonomy_ambig['top_score']:.2f}) "
+                f"is close to the next-best match {taxonomy_ambig['second_theme']} "
+                f"({taxonomy_ambig['second_score']:.2f}), within "
+                f"{self.config.ambiguity_delta_threshold} of each other"
+            )
 
         return {
             "complaint_id": c["complaint_id"],
