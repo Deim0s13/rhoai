@@ -114,9 +114,32 @@ def make_name():
 
 
 # --- Mock PII generators (fixtures.md conventions, deterministic) ----------
+def luhn_check_digit(number_str):
+    """Computes the Luhn check digit for a 15-digit prefix, so the
+    resulting 16-digit number passes Luhn validation. Added 2026-07-23:
+    the guardrails PII detector validates Luhn, not just digit shape (see
+    ADR-0004/DEPLOYMENT-LOG-2026-07-23); a uniformly random last-4-digit
+    suffix, the previous approach, produced a Luhn-valid number only
+    roughly 1 time in 10, meaning ~90% of generated "card" PII carriers
+    were never actually detectable by the guardrails demo."""
+    digits = [int(d) for d in number_str]
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2 == 0:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return (10 - (total % 10)) % 10
+
+
 def mock_card():
-    # 4111 1111 1111 1111 test-card family only
-    return "4111 1111 1111 " + f"{random.randint(0, 9999):04d}"
+    # 4111 1111 1111 1111 test-card family only, with a computed Luhn
+    # check digit so every generated number is guaranteed detectable
+    prefix = "411111111111" + f"{random.randint(0, 999):03d}"
+    check = luhn_check_digit(prefix)
+    full = prefix + str(check)
+    return f"{full[0:4]} {full[4:8]} {full[8:12]} {full[12:16]}"
 
 
 def mock_phone():

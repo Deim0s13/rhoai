@@ -206,3 +206,13 @@ replaces the MLflow experiment structure the draft proposed.
   non-discriminating in live testing) with retrieval-similarity delta,
   documented the stated limitation and demo-appropriate threshold, and
   connected the finding to the control-plane demo narrative.
+- **2026-07-24** A fourth approach was also probed and ruled out (2026-07-23): token-level
+  logprobs via vLLM's OpenAI-compatible passthrough (confirmed working
+  through Llama Stack). At temperature=0.0, the probability mass on the
+  theme-ID token is effectively 1.0 on every tested record, ambiguous or
+  not. Notably, the second-ranked token consistently matched the correct
+  ground-truth alternative theme, so the model's ranking is well-ordered,
+  but the magnitudes carry no usable routing signal. This confirms the
+  ambiguity in these scenarios is a human-judgment construct rather than
+  model-internal uncertainty, which is precisely why an external signal
+  (retrieval-similarity delta) is the right tool.
