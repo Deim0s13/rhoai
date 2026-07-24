@@ -61,6 +61,7 @@
   roles:
     - model_fetch
     - seed_taxonomy
+    - seed_pipeline_code
     - seed_synthetic_data
     - seed_evidence_bucket
     - sync_llama_stack

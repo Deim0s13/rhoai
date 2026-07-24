@@ -103,6 +103,25 @@ Open `http://localhost:8888`. Get the login token:
 oc logs complaint-intelligence-workbench-0 -n complaint-intelligence | grep -i token
 ```
 
+## 8. Verify the pipeline
+
+```bash
+WORKBENCH_POD=$(oc get pods -n complaint-intelligence \
+  -l notebook-name=complaint-intelligence-workbench \
+  -o jsonpath='{.items[0].metadata.name}')
+
+oc exec $WORKBENCH_POD -n complaint-intelligence -- \
+    pip install --quiet requests pyyaml minio --break-system-packages
+oc exec $WORKBENCH_POD -n complaint-intelligence -- \
+    python3 /opt/app-root/pipeline/smoke_test.py
+```
+
+All checks should print PASS. This is the single go/no-go gate for a
+rebuild: if it fails, the failure message names the specific broken
+stage (taxonomy mount, model discovery, vector store, guardrails, or
+the model call itself) rather than requiring notebook archaeology to
+find it.
+
 ## Do not
 
 - **Do not `oc expose`** anything in this namespace. Argo prunes it (ADR-0005).

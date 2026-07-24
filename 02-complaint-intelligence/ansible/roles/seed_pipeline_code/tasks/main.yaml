@@ -1,0 +1,21 @@
+---
+# Applies the shared classification module (pipeline/classify.py) and its
+# smoke test (pipeline/smoke_test.py) as a ConfigMap, mounted into the
+# workbench. Mirrors seed_taxonomy exactly (ADR-0009): the module reaches
+# the workbench through the same GitOps-native mechanism as the taxonomy,
+# not a manual copy-paste.
+
+- name: Apply pipeline-code ConfigMap from pipeline/
+  ansible.builtin.command: >
+    oc create configmap pipeline-code
+    --from-file=classify.py={{ playbook_dir }}/../pipeline/classify.py
+    --from-file=smoke_test.py={{ playbook_dir }}/../pipeline/smoke_test.py
+    -n {{ uc02_namespace }}
+    --dry-run=client -o yaml
+  register: configmap_manifest
+  changed_when: false
+
+- name: Apply the rendered ConfigMap
+  ansible.builtin.shell: >
+    echo "{{ configmap_manifest.stdout }}" | oc apply -n {{ uc02_namespace }} -f -
+  changed_when: true

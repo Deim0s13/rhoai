@@ -46,6 +46,9 @@ spec:
             - name: taxonomy
               mountPath: /opt/app-root/taxonomy
               readOnly: true
+            - name: pipeline-code
+              mountPath: /opt/app-root/pipeline
+              readOnly: true
       volumes:
         - name: workbench-storage
           persistentVolumeClaim:
@@ -53,6 +56,9 @@ spec:
         - name: taxonomy
           configMap:
             name: taxonomy
+        - name: pipeline-code
+          configMap:
+            name: pipeline-code
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
