@@ -1,21 +1,24 @@
 ---
 # Applies the shared classification module (pipeline/classify.py) and its
 # smoke test (pipeline/smoke_test.py) as a ConfigMap, mounted into the
-# workbench. Mirrors seed_taxonomy exactly (ADR-0009): the module reaches
-# the workbench through the same GitOps-native mechanism as the taxonomy,
-# not a manual copy-paste.
+# workbench. Mirrors seed_taxonomy (ADR-0009): the module reaches the
+# workbench through the same GitOps-native mechanism as the taxonomy, not
+# a manual copy-paste.
+#
+# Corrected 2026-07-24: the original version rendered the manifest with
+# --dry-run=client -o yaml, captured it via `register`, then re-injected
+# it into a second task via `echo "{{ ... }}"`. That round-trips arbitrary
+# file content through a shell-interpreted string. taxonomy.yaml survived
+# this because YAML rarely contains shell metacharacters; classify.py did
+# not, its docstrings and parentheses broke out of the shell's quoting and
+# were executed as commands. Fixed by piping directly, in one step, so oc
+# reads the files off disk itself and the shell never sees their content.
 
-- name: Apply pipeline-code ConfigMap from pipeline/
-  ansible.builtin.command: >
+- name: Apply pipeline-code ConfigMap from pipeline/ (single piped command)
+  ansible.builtin.shell: >
     oc create configmap pipeline-code
     --from-file=classify.py={{ playbook_dir }}/../pipeline/classify.py
     --from-file=smoke_test.py={{ playbook_dir }}/../pipeline/smoke_test.py
     -n {{ uc02_namespace }}
-    --dry-run=client -o yaml
-  register: configmap_manifest
-  changed_when: false
-
-- name: Apply the rendered ConfigMap
-  ansible.builtin.shell: >
-    echo "{{ configmap_manifest.stdout }}" | oc apply -n {{ uc02_namespace }} -f -
+    --dry-run=client -o yaml | oc apply -n {{ uc02_namespace }} -f -
   changed_when: true

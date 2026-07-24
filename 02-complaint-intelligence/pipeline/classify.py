@@ -265,17 +265,19 @@ class Pipeline:
         return resp.json().get("data", [])
 
     def taxonomy_theme_ambiguity(self, chosen_theme_id: str, body: str) -> dict:
-        """ADR-0004 review-routing signal, corrected 2026-07-24: compares
-        the model's ACTUAL chosen theme against the next-best alternative
-        from retrieval, not a blind top-2 that could exclude the model's
-        own pick entirely. Found live via the deployed app's review queue
-        (not visible in raw JSON): a blind top-2 comparison regularly
-        named two themes unrelated to what the model actually chose,
-        since the original version computed this independently, with no
-        knowledge of the classification result. top_k=10 covers all 10
-        themes in the taxonomy, so the chosen theme's own retrieval score
-        is always present to compare against, by construction."""
-        hits = self.search_by_kind(body, "taxonomy", top_k=10)
+        """ADR-0004 review-routing signal, corrected 2026-07-24 (twice):
+        first to compare the model's actual chosen theme rather than a
+        blind top-2, second because top_k=10 on a MIXED taxonomy search
+        (themes and root causes both carry kind="taxonomy") let root-cause
+        documents crowd out every theme entirely, confirmed live: zero
+        themes appeared in a top-10 search for a real complaint. Now
+        requests every taxonomy document, computed dynamically from the
+        loaded taxonomy rather than a hardcoded count, so growing the
+        taxonomy later can't silently reintroduce this."""
+        total_taxonomy_docs = len(self.taxonomy["themes"]) + len(
+            self.taxonomy["root_causes"]
+        )
+        hits = self.search_by_kind(body, "taxonomy", top_k=total_taxonomy_docs)
         theme_hits = {
             h["attributes"]["id"]: h["score"]
             for h in hits
