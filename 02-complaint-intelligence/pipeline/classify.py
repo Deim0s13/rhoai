@@ -166,6 +166,63 @@ class Pipeline:
         self.get_or_create_vector_store()
         return self
 
+    def populate_taxonomy(self) -> int:
+        """Uploads any taxonomy documents not already in the vector store.
+        Idempotent, safe to call every run. Same logic as the notebook's
+        population cell; extracted here (2026-07-28) so the batch Job
+        doesn't need its own copy."""
+        already = self.existing_ids_for_kind("taxonomy")
+        added = 0
+        for t in self.taxonomy["themes"]:
+            if t["id"] in already:
+                continue
+            parts = [f"{t['name']}: {t['definition'].strip()}"]
+            if t.get("includes"):
+                parts.append("Includes: " + "; ".join(t["includes"]))
+            if t.get("excludes"):
+                parts.append("Excludes: " + "; ".join(t["excludes"]))
+            if t.get("examples"):
+                parts.append("Examples: " + "; ".join(t["examples"]))
+            self.add_document(
+                "\n".join(parts),
+                {"kind": "taxonomy", "item_type": "theme", "id": t["id"]},
+            )
+            added += 1
+        for r in self.taxonomy["root_causes"]:
+            if r["id"] in already:
+                continue
+            text = f"{r['name']}: {r['definition'].strip()}"
+            self.add_document(
+                text, {"kind": "taxonomy", "item_type": "root_cause", "id": r["id"]}
+            )
+            added += 1
+        return added
+
+    def populate_complaints(self, all_complaints: list) -> tuple:
+        """Uploads any complaints not already in the vector store,
+        redacted before embedding. Returns (added, redacted_count)."""
+        already = self.existing_ids_for_kind("complaint")
+        added = 0
+        redacted_count = 0
+        for c in all_complaints:
+            if c["complaint_id"] in already:
+                continue
+            detected, spans = self.check_pii(c["body"])
+            text_to_embed = self.redact_pii(c["body"], spans) if detected else c["body"]
+            if detected:
+                redacted_count += 1
+            self.add_document(
+                text_to_embed,
+                {
+                    "kind": "complaint",
+                    "id": c["complaint_id"],
+                    "channel": c.get("channel", ""),
+                    "received_date": c.get("received_date", ""),
+                },
+            )
+            added += 1
+        return added, redacted_count
+
     # ---------------------------------------------------------------
     # PII detection and redaction
     # ---------------------------------------------------------------
