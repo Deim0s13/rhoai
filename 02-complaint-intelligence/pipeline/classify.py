@@ -454,9 +454,9 @@ citation_text must be copied verbatim from the complaint text above."""
             )
         if narrow_margin:
             reasons.append(
-                f"top two taxonomy matches ({taxonomy_ambig['top_theme']}: "
-                f"{taxonomy_ambig['top_score']:.2f}, {taxonomy_ambig['second_theme']}: "
-                f"{taxonomy_ambig['second_score']:.2f}) within "
+                f"chosen theme {taxonomy_ambig['top_theme']} ({taxonomy_ambig['top_score']:.2f}) "
+                f"is close to the next-best match {taxonomy_ambig['second_theme']} "
+                f"({taxonomy_ambig['second_score']:.2f}), within "
                 f"{self.config.ambiguity_delta_threshold} of each other"
             )
         review_reason = "; ".join(reasons) if reasons else None
