@@ -1,8 +1,6 @@
 # Rebuild guide
 
-The environment is throwaway. This is the whole rebuild, assuming a fresh RHDP
-cluster with RHOAI. Everything here is repo state; nothing depends on notes,
-memory or a previous session's shell.
+The environment is throwaway. This is the whole rebuild, assuming a fresh RHDP cluster with RHOAI. Everything here is repo state; nothing depends on notes, memory or a previous session's shell.
 
 ## 1. Prerequisites (once per laptop)
 
@@ -29,16 +27,12 @@ export POSTGRES_PASSWORD='<choose-a-password>'   # Llama Stack metadata store (R
 export HF_TOKEN='<hf-token>'
 ```
 
-Keep these in ONE terminal tab for the whole run. Lost exports were the single
-biggest time sink in the first live session.
+Keep these in ONE terminal tab for the whole run. Lost exports were the single biggest time sink in the first live session.
 
 ## 3. Bootstrap
 
-Operator activation is handled by the bootstrap; there are no console steps.
-RHDP catalog images ship Llama Stack and TrustyAI as `Removed`, so their CRDs
-do not exist and the llama-stack/guardrails manifests cannot apply. The
-bootstrap patches the DataScienceCluster and waits for the CRDs before
-applying anything that depends on them.
+Operator activation is handled by the bootstrap; there are no console steps. RHDP catalog images ship Llama Stack and TrustyAI as `Removed`, so their CRDs
+do not exist and the llama-stack/guardrails manifests cannot apply. The bootstrap patches the DataScienceCluster and waits for the CRDs before applying anything that depends on them.
 
 ```bash
 cd 02-complaint-intelligence
@@ -51,20 +45,13 @@ Verify afterwards if you want reassurance:
 oc get crd | grep -iE "llamastackdistributions|guardrailsorchestrators"
 ```
 
-The script guards every failure mode from the first session: missing envsubst,
-empty credentials, unsubstituted placeholders, wrong active project, and MinIO
-running stale credentials. If it exits with an error, the message tells you
-what to fix; it will not leave a half-broken cluster behind.
+The script guards every failure mode from the first session: missing envsubst, empty credentials, unsubstituted placeholders, wrong active project, and MinIO running stale credentials. If it exits with an error, the message tells you what to fix; it will not leave a half-broken cluster behind.
 
 ## 4. Seed
 
     ansible-playbook ansible/site.yml
 
-Discovers the MinIO Route itself, downloads the model (~16GiB, roughly 15 to
-20 minutes), mirrors it into MinIO, restarts the predictor once weights are
-confirmed complete, waits for it to be ready, then restarts Llama Stack so
-it discovers the now-ready model. Fully automated; no manual pod restarts
-or verification steps needed after this command finishes.
+Discovers the MinIO Route itself, downloads the model (~16GiB, roughly 15 to 20 minutes), mirrors it into MinIO, restarts the predictor once weights are confirmed complete, waits for it to be ready, then restarts Llama Stack so it discovers the now-ready model. Fully automated; no manual pod restarts or verification steps needed after this command finishes.
 
 ## 5. Verify
 
@@ -89,9 +76,7 @@ Wait for `1/1 Running`, then confirm the taxonomy mount:
 oc exec -n complaint-intelligence complaint-intelligence-workbench-0 -- ls /opt/app-root/taxonomy
 ```
 
-External access via the RHOAI dashboard and the Gateway URL does not work on
-this platform version (see "Do not" and the troubleshooting table). Use
-port-forward instead:
+External access via the RHOAI dashboard and the Gateway URL does not work on this platform version (see "Do not" and the troubleshooting table). Use port-forward instead:
 
 ```bash
 oc port-forward svc/complaint-intelligence-workbench -n complaint-intelligence 8888:80
@@ -116,27 +101,18 @@ oc exec $WORKBENCH_POD -n complaint-intelligence -- \
     python3 /opt/app-root/pipeline/smoke_test.py
 ```
 
-All checks should print PASS. This is the single go/no-go gate for a
-rebuild: if it fails, the failure message names the specific broken
-stage (taxonomy mount, model discovery, vector store, guardrails, or
-the model call itself) rather than requiring notebook archaeology to
-find it.
+All checks should print PASS. This is the single go/no-go gate for a rebuild: if it fails, the failure message names the specific broken stage (taxonomy mount, model discovery, vector store, guardrails, or the model call itself) rather than requiring notebook archaeology to find it.
 
 ## 8. Build and deploy the app
 
-Requires step 4 to have fully completed, not just the complaints bucket
-seeded: `Pipeline().setup()` runs at container startup and discovers the
-model and creates the vector store, both only exist once the whole
-`ansible-playbook` run (including `sync_llama_stack`) has succeeded.
-Deploying before that finishes will crash-loop.
+Requires step 4 to have fully completed, not just the complaints bucket seeded: `Pipeline().setup()` runs at container startup and discovers the model and creates the vector store, both only exist once the whole `ansible-playbook` run (including `sync_llama_stack`) has succeeded. Deploying before that finishes will crash-loop.
 
 ```bash
 oc apply -f manifests/app/buildconfig.yaml -n complaint-intelligence
 oc start-build complaint-intelligence-app -n complaint-intelligence --follow
 ```
 
-Wait for the build to complete (`--follow` streams the log; a failed
-build shows here, not as a confusing pod-level error later). Then:
+Wait for the build to complete (`--follow` streams the log; a failed build shows here, not as a confusing pod-level error later). Then:
 
 ```bash
 oc apply -f manifests/app/deployment.yaml -n complaint-intelligence
@@ -151,19 +127,13 @@ oc get route complaint-intelligence-app -n complaint-intelligence \
   -o jsonpath='{.spec.host}'
 ```
 
-Open `https://<that-host>` in a browser. If the evidence bucket is still
-empty at this point (no batch run yet), the dashboard and review queue
-show their empty states correctly rather than erroring, that is expected,
-not a bug; classify a complaint via `/classify` or run the notebook's
-batch cell to populate real data.
+Open `https://<that-host>` in a browser. If the evidence bucket is still empty at this point (no batch run yet), the dashboard and review queue show their empty states correctly rather than erroring, that is expected, not a bug; classify a complaint via `/classify` or run the notebook's batch cell to populate real data.
 
 ## 9. Populate and classify
 
-Two ways to do this, same underlying logic either way (ADR-0009, both
-call `pipeline/classify.py` directly).
+Two ways to do this, same underlying logic either way (ADR-0009, both call `pipeline/classify.py` directly).
 
-**Recommended: the automated Job.** Requires step 9 (the app image) to
-have completed, it reuses that image. No workbench, no notebook.
+**Recommended: the automated Job.** Requires step 9 (the app image) to have completed, it reuses that image. No workbench, no notebook.
 
 ```bash
 oc create -f manifests/job/batch-classify.yaml -n complaint-intelligence
@@ -176,25 +146,15 @@ Get the pod name from the job, then follow its logs:
 oc logs -f job/<generated-name> -n complaint-intelligence
 ```
 
-Expect, in order: `Taxonomy: 17 new documents added.`, `Complaints: 200
-new documents added (...)`, then `Done. Classified: 200, Skipped: 0,
-Failed: 0`. Idempotent, safe to re-trigger any time (after a data change,
-a pipeline fix, or just to confirm the environment is healthy);
-already-populated data is correctly skipped, not reprocessed.
+Expect, in order: `Taxonomy: 17 new documents added.`, `Complaints: 200 new documents added (...)`, then `Done. Classified: 200, Skipped: 0, Failed: 0`. Idempotent, safe to re-trigger any time (after a data change, a pipeline fix, or just to confirm the environment is healthy); already-populated data is correctly skipped, not reprocessed.
 
-Each trigger creates a new Job object (`generateName`, not a fixed name),
-so they accumulate. Clean up old ones occasionally:
+Each trigger creates a new Job object (`generateName`, not a fixed name), so they accumulate. Clean up old ones occasionally:
 
 ```bash
 oc delete jobs -n complaint-intelligence -l app.kubernetes.io/part-of=rhoai-presales-lab --field-selector status.successful=1
 ```
 
-**Alternative: run the notebook manually**, useful for debugging
-cell-by-cell or exploring the pipeline interactively. Open the workbench,
-run `01-classify-complaint.ipynb` top to bottom. Cells 6-7 populate the
-vector store; Cell 9 runs the same classification loop the Job runs.
-
-Either way, once done, refresh the app so it shows the new data:
+**Alternative: run the notebook manually**, useful for debugging cell-by-cell or exploring the pipeline interactively. Open the workbench, run `01-classify-complaint.ipynb` top to bottom. Cells 6-7 populate the vector store; Cell 9 runs the same classification loop the Job runs. Either way, once done, refresh the app so it shows the new data:
 
 ```bash
 oc get route complaint-intelligence-app -n complaint-intelligence \
@@ -203,37 +163,49 @@ oc get route complaint-intelligence-app -n complaint-intelligence \
 
 Open `https://<host>/refresh`, or use "Refresh" in the app's nav.
 
+## Optional: Models-as-a-Service (ADR-0003)
+
+Not part of the standard rebuild. Only relevant if evaluating the Economics pillar.
+
+    chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh
+
+    ./scripts/setup-maas-phase1.sh
+
+Review the "pending install plans" listing partway through the output; it should show only the LWS plan being acted on.
+
+    ./scripts/setup-maas-phase2.sh
+
+Installs RHCL (Kuadrant), the dedicated `maas-gateway-class` and `maas-default-gateway`. Stops after the operator install and prints the remaining manual steps (Kuadrant CR creation, Authorino TLS bootstrap), not yet scripted since this sequence has not been run end-to-end as of 2026-07-28. Follow the printed steps directly from `docs.redhat.com`'s "Configure TLS for Models-as-a-Service".
+
+**Do not run Phase 2 without Phase 1 confirmed clean first**
+(`scripts/setup-maas-phase1.sh` completing with no failures, Service Mesh
+untouched). See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md` for
+why this matters.
+
 ## Do not
 
-- **Do not `oc expose`** anything in this namespace. Argo prunes it (ADR-0005).
-  Network edge = a manifest.
-- **Do not port-forward for the model upload.** It drops on multi-GiB
-  transfers. The Route exists for this.
-- **Do not put secret templates under `manifests/`.** Argo applies them raw
-  (ADR-0005).
-- **Do not activate operators through the console.** The bootstrap patches the
-  DataScienceCluster. A console click is an undocumented manual step and will
-  not survive a rebuild.
-- **Do not trust `oc get applications`.** Use `oc get applications.argoproj.io`;
-  the short name can resolve to a different CRD.
-- **Do not use the RHOAI dashboard's Open button for this workbench.**
-  Broken on 3.4.2 for hand-applied Notebook objects; use port-forward
-  (step 7).
-- **Do not add a Route to work around the broken Gateway URL.** A
-  controller-generated NetworkPolicy blocks it by design; port-forward is
-  the only working path.
-- **Do not re-run `ansible-playbook ansible/site.yml` after the vector
-  store has been created and populated.** `sync_llama_stack` restarts the
-  Llama Stack pod every run. If that restart lands before the vector
-  store's registration has durably persisted, Milvus's search index loses
-  track of the store, file listings and uploads still work, search
-  silently returns zero results (`VectorStoreNotFoundError` in the pod
-  logs, not visible from the notebook side). Safe on a fresh rebuild:
-  the playbook completes fully before the notebook creates the store. Only
-  a risk if re-running the playbook after the notebook has already
-  populated data. If something genuinely needs re-seeding at that point,
-  delete and recreate the vector store afterward rather than trusting it
-  survived the restart.
+- **Do not `oc expose`** anything in this namespace. Argo prunes it (ADR-0005). Network edge = a manifest.
+- **Do not port-forward for the model upload.** It drops on multi-GiB transfers. The Route exists for this.
+- **Do not put secret templates under `manifests/`.** Argo applies them raw (ADR-0005).
+- **Do not activate operators through the console.** The bootstrap patches the DataScienceCluster. A console click is an undocumented manual step and will not survive a rebuild.
+- **Do not trust `oc get applications`.** Use `oc get applications.argoproj.io`; the short name can resolve to a different CRD.
+- **Do not use the RHOAI dashboard's Open button for this workbench.** Broken on 3.4.2 for hand-applied Notebook objects; use port-forward (step 7).
+- **Do not add a Route to work around the broken Gateway URL.** A controller-generated NetworkPolicy blocks it by design; port-forward is the only working path.
+- **Do not re-run `ansible-playbook ansible/site.yml` after the vector store has been created and populated.** `sync_llama_stack` restarts the Llama Stack pod every run. If that restart lands before the vector store's registration has durably persisted, Milvus's search index loses track of the store, file listings and uploads still work, search silently returns zero results (`VectorStoreNotFoundError` in the pod logs, not visible from the notebook side). Safe on a fresh rebuild: the playbook completes fully before the notebook creates the store. Only a risk if re-running the playbook after the notebook has already populated data. If something genuinely needs re-seeding at that point, delete and recreate the vector store afterward rather than trusting it survived the restart.
+- **Do not blanket-approve pending install plans** (`oc get installplan -o
+name | xargs -I{} oc patch {} ... approved:true` or similar). This approves _every_ pending plan across every operator, not just the one you're waiting on. Confirmed live (2026-07-28): approving a single pending LWS install plan this way also silently approved an unrelated, unplanned Service Mesh upgrade (v3.1.0 → v3.4.0, three minor versions), which broke Gateway API reconciliation cluster-wide (RHOAI 3.4.2's own gateway controller pins the Istio CR to a version the new operator refuses to install as end-of-life) and was not cleanly recoverable by hand. Always target a specific install plan by name, found first via a scoped query:
+
+  ```bash
+  oc get installplan -n openshift-operators -o json | python3 -c "
+  import json, sys
+  data = json.load(sys.stdin)
+  for item in data['items']:
+    if '<expected-csv-name>' in item['spec'].get('clusterServiceVersionNames', []):
+      print(item['metadata']['name'])
+  "
+  oc patch installplan <that-specific-name> -n openshift-operators \
+    --type merge -p '{"spec":{"approved":true}}'
+  ```
 
 ## If something fails
 

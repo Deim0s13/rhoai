@@ -130,3 +130,15 @@ the second consuming workload ADR-0001 calls for as the policy-consistency
 proof. The second option is lower risk to the already-stable pipeline and
 arguably serves ADR-0001's own goal better; worth deciding explicitly
 before phase 5, not defaulting to redeploying Granite by inertia.
+
+**Resolved 2026-07-28:** the `simulator` model (CPU-only, per the MaaS
+companion guide) will be registered as the second MaaS-governed workload,
+not Granite. This keeps the classification pipeline's validated serving
+setup completely untouched by the MaaS install, avoids GPU contention
+entirely, and satisfies ADR-0001's still-open requirement for a second
+consuming workload as the policy-consistency proof, closing two backlog
+items with one build rather than one. The governance demonstration
+(identity, budget enforcement, revocation) applies to the `simulator`
+model through the same MaaS mechanism that would govern any model
+registered with it, the narrative point, platform-level control across
+the estate, doesn't depend on which specific model is behind it.

@@ -1,0 +1,28 @@
+# ADR-0003 Phase 2. A dedicated GatewayClass for MaaS, per Red Hat's
+# documented prerequisite ("You have created a GatewayClass resource
+# configured for the OpenShift Gateway Controller"). Not reusing
+# data-science-gateway-class or openshift-ai-inference, both already
+# tied to specific existing purposes on this cluster; controller name
+# confirmed live (2026-07-28) as the pattern both existing classes use
+# successfully.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: maas-gateway-class
+spec:
+  controllerName: openshift.io/gateway-controller/v1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: maas-default-gateway
+  namespace: openshift-ingress
+  annotations:
+    opendatahub.io/managed: "false"
+    security.opendatahub.io/authorino-tls-bootstrap: "true"
+spec:
+  gatewayClassName: maas-gateway-class
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS

@@ -1,0 +1,23 @@
+# ADR-0003 Phase 2. Red Hat Connectivity Link (RHCL), the supported
+# distribution of Kuadrant, per Red Hat's documented MaaS prerequisite:
+# "You have installed the Red Hat Connectivity Link Operator version 1.2
+# or later to the openshift-operators namespace and created a Kuadrant
+# custom resource in the kuadrant-system namespace with ready status."
+#
+# NOT kuadrant-operator (Community Operators catalog): that is the
+# upstream, unsupported version. Confirmed live (2026-07-28): rhcl-operator
+# exists in the Red Hat Operators catalog, channel "stable".
+#
+# installPlanApproval: Manual, scoped-approval by name only, per
+# DEPLOYMENT-LOG-2026-07-28.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhcl-operator
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: rhcl-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
