@@ -157,6 +157,52 @@ show their empty states correctly rather than erroring, that is expected,
 not a bug; classify a complaint via `/classify` or run the notebook's
 batch cell to populate real data.
 
+## 9. Populate and classify
+
+Two ways to do this, same underlying logic either way (ADR-0009, both
+call `pipeline/classify.py` directly).
+
+**Recommended: the automated Job.** Requires step 9 (the app image) to
+have completed, it reuses that image. No workbench, no notebook.
+
+```bash
+oc create -f manifests/job/batch-classify.yaml -n complaint-intelligence
+oc get jobs -n complaint-intelligence -w
+```
+
+Get the pod name from the job, then follow its logs:
+
+```bash
+oc logs -f job/<generated-name> -n complaint-intelligence
+```
+
+Expect, in order: `Taxonomy: 17 new documents added.`, `Complaints: 200
+new documents added (...)`, then `Done. Classified: 200, Skipped: 0,
+Failed: 0`. Idempotent, safe to re-trigger any time (after a data change,
+a pipeline fix, or just to confirm the environment is healthy);
+already-populated data is correctly skipped, not reprocessed.
+
+Each trigger creates a new Job object (`generateName`, not a fixed name),
+so they accumulate. Clean up old ones occasionally:
+
+```bash
+oc delete jobs -n complaint-intelligence -l app.kubernetes.io/part-of=rhoai-presales-lab --field-selector status.successful=1
+```
+
+**Alternative: run the notebook manually**, useful for debugging
+cell-by-cell or exploring the pipeline interactively. Open the workbench,
+run `01-classify-complaint.ipynb` top to bottom. Cells 6-7 populate the
+vector store; Cell 9 runs the same classification loop the Job runs.
+
+Either way, once done, refresh the app so it shows the new data:
+
+```bash
+oc get route complaint-intelligence-app -n complaint-intelligence \
+  -o jsonpath='{.spec.host}'
+```
+
+Open `https://<host>/refresh`, or use "Refresh" in the app's nav.
+
 ## Do not
 
 - **Do not `oc expose`** anything in this namespace. Argo prunes it (ADR-0005).
@@ -205,3 +251,4 @@ batch cell to populate real data.
 | App pod CrashLoopBackOff on startup                            | Deployed before step 4 finished; Pipeline().setup() failed discovering the model or creating the vector store | Confirm ansible-playbook completed fully, then `oc rollout restart deployment/complaint-intelligence-app`                  |
 | App build fails with "no such file: pipeline/classify.py"      | BuildConfig's contextDir or Containerfile COPY paths don't match                                              | Confirm `contextDir: 02-complaint-intelligence` in buildconfig.yaml and that Containerfile COPY paths are relative to that |
 | Vector search returns 0 results despite files listed correctly | Llama Stack restarted after the vector store was created; Milvus's search index lost its registration         | Delete the store (`DELETE /v1/vector_stores/<id>`), recreate via the notebook's Cell 10, repopulate via Cells 6-7          |
+| Job fails: `can't open file '.../run_batch.py'`                | App image was built before `pipeline/run_batch.py` existed                                                    | `oc start-build complaint-intelligence-app -n complaint-intelligence --follow`, then re-trigger the Job                    |

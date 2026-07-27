@@ -35,19 +35,98 @@ ladder below exists so the pillar is never silently dropped.
 
 ## Decision
 
-TO CAPTURE. Record which option, and specifically:
+**Option 1: platform-native MaaS.** Confirmed by a paper-based evaluation
+against the four required demonstrations (2026-07-28), not chosen by
+default: MaaS is purpose-built for three of the four (token-based budget
+enforcement with real rejection evidence, and a genuine consumption
+registry, both weak or absent under a composed-gateway alternative), and
+matches on the fourth (kill-switch revocation). Option 2 (composed
+gateway via Authorino alone) was the only real alternative considered;
+Authorino handles identity and revocation well but has no rate-limiting
+capability of its own, that is specifically what Kuadrant adds, so budget
+enforcement under option 2 would be a hand-built request-count
+approximation, not the token-based budgeting the pillar actually asks
+for.
 
-- what provides application identity and credential issue/revocation
-- where token budgets / rate limits are enforced and what evidence a rejected
-  request produces
-- what registry or view answers "which applications consume AI services"
-- the exact demo moment for the kill-switch row (revoke, show failure, no app
-  change)
+- **Identity and credential issue/revocation:** subscription-bound API
+  keys (`sk-oai-` prefix), issued and revoked via the MaaS dashboard or
+  `DELETE /maas-api/v1/api-keys/{id}`.
+- **Budget enforcement and rejection evidence:** `MaaSSubscription` token
+  rate limits, enforced by Kuadrant, produce real `429` responses under
+  load. Demo moment: the guide's own verification procedure, rapid
+  requests against a low-token-limit subscription, `200`/`429` mix
+  confirmed via `curl`.
+- **Consumption registry:** the MaaS observability dashboard,
+  subscription-level token consumption, exportable CSV for cost
+  attribution.
+- **Kill-switch demo:** revoke a subscription's API key, next request
+  `401`s, Granite and the classification pipeline completely untouched.
 
 ## Consequences
 
-TO CAPTURE. At minimum: which controls-matrix Economics rows are demonstrated
-live versus documented; what (if anything) was added to manifests/ and
-gitops/ as a result; and whether the second consuming workload (required by
-ADR-0001 for the policy-consistency proof) also registers through this
-gateway, which would strengthen the attribution demonstration.
+**Confirmed live, 2026-07-28, against this environment:**
+
+- Cluster-admin access: confirmed present.
+- `kserve` component: already `Managed`.
+- `cert-manager-operator`, `servicemeshoperator3`: already installed.
+- LWS (LeaderWorkerSet) operator: **not installed**, required.
+- User Workload Monitoring: **not confirmed enabled**, required (MaaS
+  shows `Degraded` without it).
+- Kuadrant/Red Hat Connectivity Link: **not installed** (confirmed
+  earlier this session: Authorino present alone, no Kuadrant operator, no
+  Kuadrant CRDs).
+- `maas-default-gateway`: does not exist. The two Gateways present
+  (`data-science-gateway`, `openshift-ai-inference`) are unrelated,
+  already-investigated inference-routing Gateways, not a partial MaaS
+  setup, this was an incorrect inference earlier in this session,
+  corrected here.
+- PostgreSQL for MaaS: not yet provisioned. RHOAI does not supply one;
+  the existing Llama Stack Postgres instance may be reusable as a
+  separate database within it, worth confirming before provisioning a
+  new instance from scratch.
+- **Granite is deployed via the classic KServe `InferenceService`
+  (`serving.kserve.io/v1beta1`), confirmed live.** MaaS requires the
+  `LLMInferenceService` architecture (llm-d, or vLLM-on-MaaS as a
+  Technology Preview). This is the most consequential finding: making
+  Granite MaaS-eligible means redeploying it under a different serving
+  architecture, not a gateway configuration change. The current
+  `RawDeployment InferenceService` setup has been validated across
+  multiple full rebuilds this engagement; this redeployment is real risk
+  to that stability, not a side effect to wave through.
+
+**Genuinely new platform, worth stating plainly against the proposal's
+own "no new platform to procure or accredit" framing to ANZ**: a new
+cluster-scoped operator (Kuadrant), a new database, and a changed model
+serving architecture are all real additions, not configuration within
+what already exists. This does not invalidate the "control plane, not
+migration" narrative, but it does mean the Economics pillar's live
+demonstration carries a materially higher build cost than every other
+control demonstrated so far in this engagement, worth being upfront about
+that asymmetry in any customer conversation, not just in this document.
+
+**Phased implementation plan** (mirrors the companion guide's own phase
+structure, each phase independently verifiable before proceeding):
+
+1. Prerequisites: LWS operator, User Workload Monitoring, confirm
+   cert-manager/Service Mesh versions meet minimums
+2. Platform configuration: Kuadrant/Authorino, `maas-default-gateway`,
+   TLS bootstrap
+3. RHOAI configuration: `DataScienceCluster` MaaS enablement,
+   `OdhDashboardConfig` flags
+4. MaaS platform: PostgreSQL secret, `maas-api` deployment
+5. Model deployment: redeploy Granite (or a second, MaaS-only model,
+   e.g. the CPU-only `simulator`) under `LLMInferenceService`
+6. Verification: API keys, inference through the MaaS gateway, rate
+   limiting, revocation, all live-tested per the official verification
+   procedure
+7. Observability (optional): usage dashboard, cost-attribution export
+
+**Open question carried into implementation**: whether to redeploy
+_Granite itself_ under `LLMInferenceService` (higher risk, directly
+demonstrates governance over the actual classification model) or
+register a _second_, MaaS-only model, the CPU-only `simulator` is a
+strong candidate given the single-GPU constraint, and this ADR is also
+the second consuming workload ADR-0001 calls for as the policy-consistency
+proof. The second option is lower risk to the already-stable pipeline and
+arguably serves ADR-0001's own goal better; worth deciding explicitly
+before phase 5, not defaulting to redeploying Granite by inertia.
