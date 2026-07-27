@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: complaint-intelligence-batch-classify-
+  namespace: complaint-intelligence
+  labels:
+    app.kubernetes.io/part-of: rhoai-presales-lab
+spec:
+  backoffLimit:
+    1 # already_classified() makes a retry safe and cheap,
+    # a genuine failure is more likely a real problem
+    # worth surfacing than something a retry fixes
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: batch-classify
+          image: image-registry.openshift-image-registry.svc:5000/complaint-intelligence/complaint-intelligence-app:latest
+          command: ["python3", "pipeline/run_batch.py"]
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+          volumeMounts:
+            - name: taxonomy
+              mountPath: /opt/app-root/taxonomy
+              readOnly: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: taxonomy
+          configMap:
+            name: taxonomy

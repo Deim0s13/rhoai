@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # in at build time here since this is a normal container build, not a
 # workbench needing a GitOps-native delivery mechanism.
 COPY pipeline/classify.py ./pipeline/classify.py
+COPY pipeline/run_batch.py ./pipeline/run_batch.py
 
 COPY app/app.py .
 COPY app/templates ./templates
