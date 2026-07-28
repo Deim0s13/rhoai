@@ -31,8 +31,7 @@ Keep these in ONE terminal tab for the whole run. Lost exports were the single b
 
 ## 3. Bootstrap
 
-Operator activation is handled by the bootstrap; there are no console steps. RHDP catalog images ship Llama Stack and TrustyAI as `Removed`, so their CRDs
-do not exist and the llama-stack/guardrails manifests cannot apply. The bootstrap patches the DataScienceCluster and waits for the CRDs before applying anything that depends on them.
+Operator activation is handled by the bootstrap; there are no console steps. RHDP catalog images ship Llama Stack and TrustyAI as `Removed`, so their CRDs do not exist and the llama-stack/guardrails manifests cannot apply. The bootstrap patches the DataScienceCluster and waits for the CRDs before applying anything that depends on them.
 
 ```bash
 cd 02-complaint-intelligence
@@ -133,7 +132,7 @@ Open `https://<that-host>` in a browser. If the evidence bucket is still empty a
 
 Two ways to do this, same underlying logic either way (ADR-0009, both call `pipeline/classify.py` directly).
 
-**Recommended: the automated Job.** Requires step 9 (the app image) to have completed, it reuses that image. No workbench, no notebook.
+**Recommended: the automated Job.** Requires step 8 (the app image) to have completed, it reuses that image. No workbench, no notebook.
 
 ```bash
 oc create -f manifests/job/batch-classify.yaml -n complaint-intelligence
@@ -167,6 +166,8 @@ Open `https://<host>/refresh`, or use "Refresh" in the app's nav.
 
 Not part of the standard rebuild. Only relevant if evaluating the Economics pillar.
 
+**Run MaaS phases only after step 7's smoke test passes.** The core build has zero Service Mesh dependency (confirmed 2026-07-28: maas-default-gateway runs on the OpenShift ingress gateway controller, and the demo path uses Routes and service DNS). Keeping the two failure domains separated means a servicemesh guard trip cannot be confused with a broken core build.
+
     chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh
 
     ./scripts/setup-maas-phase1.sh
@@ -175,12 +176,12 @@ Review the "pending install plans" listing partway through the output; it should
 
     ./scripts/setup-maas-phase2.sh
 
-Installs RHCL (Kuadrant), the dedicated `maas-gateway-class` and `maas-default-gateway`. Stops after the operator install and prints the remaining manual steps (Kuadrant CR creation, Authorino TLS bootstrap), not yet scripted since this sequence has not been run end-to-end as of 2026-07-28. Follow the printed steps directly from `docs.redhat.com`'s "Configure TLS for Models-as-a-Service".
+Installs RHCL (Kuadrant), the dedicated `maas-gateway-class` and `maas-default-gateway`. Before approving anything, the script pins the servicemesh subscription (channel stable-3.1 if the catalog offers it, Manual otherwise) and inspects the RHCL install plan's contents: a plan bundling servicemesh outside v3.1.x fails hard with a runbook pointer. A plan arriving already approved is normal (shared namespace approval), not an error. Stops after the operator install and prints the remaining manual steps (Kuadrant CR creation, Authorino TLS bootstrap). These manual steps were run once live on 2026-07-28 (maas-default-gateway reached PROGRAMMED with a working ELB address) but are not yet scripted; follow the printed steps, cross-referencing docs.redhat.com's "Configure TLS for Models-as-a-Service". If either servicemesh guard trips, stop and open RUNBOOK-servicemesh-recovery.md before doing anything else.
 
 **Do not run Phase 2 without Phase 1 confirmed clean first**
 (`scripts/setup-maas-phase1.sh` completing with no failures, Service Mesh
-untouched). See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md` for
-why this matters.
+untouched). See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md` and
+`DEPLOYMENT-LOG-2026-07-28-servicemesh-recovery.md` for why this matters.
 
 ## Do not
 
@@ -189,19 +190,12 @@ why this matters.
 - **Do not put secret templates under `manifests/`.** Argo applies them raw (ADR-0005).
 - **Do not activate operators through the console.** The bootstrap patches the DataScienceCluster. A console click is an undocumented manual step and will not survive a rebuild.
 - **Do not trust `oc get applications`.** Use `oc get applications.argoproj.io`; the short name can resolve to a different CRD.
-- **Do not use the RHOAI dashboard's Open button for this workbench.** Broken on 3.4.2 for hand-applied Notebook objects; use port-forward (step 7).
+- **Do not use the RHOAI dashboard's Open button for this workbench.** Broken on 3.4.2 for hand-applied Notebook objects; use port-forward (step 6).
 - **Do not add a Route to work around the broken Gateway URL.** A controller-generated NetworkPolicy blocks it by design; port-forward is the only working path.
 - **Do not re-run `ansible-playbook ansible/site.yml` after the vector store has been created and populated.** `sync_llama_stack` restarts the Llama Stack pod every run. If that restart lands before the vector store's registration has durably persisted, Milvus's search index loses track of the store, file listings and uploads still work, search silently returns zero results (`VectorStoreNotFoundError` in the pod logs, not visible from the notebook side). Safe on a fresh rebuild: the playbook completes fully before the notebook creates the store. Only a risk if re-running the playbook after the notebook has already populated data. If something genuinely needs re-seeding at that point, delete and recreate the vector store afterward rather than trusting it survived the restart.
-- **Do not blanket-approve pending install plans** (`oc get installplan -o
-name | xargs -I{} oc patch {} ... approved:true` or similar). This approves _every_ pending plan across every operator, not just the one you're waiting on. Confirmed live (2026-07-28): approving a single pending LWS install plan this way also silently approved an unrelated, unplanned Service Mesh upgrade (v3.1.0 → v3.4.0, three minor versions), which broke Gateway API reconciliation cluster-wide (RHOAI 3.4.2's own gateway controller pins the Istio CR to a version the new operator refuses to install as end-of-life) and was not cleanly recoverable by hand. Always target a specific install plan by name, found first via a scoped query:
-- **Do not approve any pending Service Mesh install plan.** RHOAI 3.4.2 pins Istio v1.26.2; Service Mesh operator v3.4.0 refuses to install it (end-of-life). A pending v3.4.0 channel-head plan is a permanent fixture of every environment and must never be approved. Confirmed live twice (2026-07-28).
-- **Do not treat Manual approval on the servicemesh subscription as a
-  sufficient brake.** Install plan approval is effectively shared across subscriptions OLM resolves together; Kuadrant's generated subscriptions participate in the same resolution and can sweep a servicemesh upgrade through inside a bundled plan (install-kkl59,2026-07-28). The post-install guard in setup-maas-phase2.sh is the real control.
-- **Do not delete the servicemesh subscription to re-pin it.** It is an rhcl-operator dependency; the resolver recreates it within seconds,without your settings. Pin by patching the live subscription in place.
-- **Do not commit one-shot corrective manifests into applyable paths**
-  (ADR-0010). Remediation is a runbook step, not a manifest.
+- **Do not blanket-approve pending install plans** (`oc get installplan -o name | xargs -I{} oc patch {} ... approved:true` or similar). This approves _every_ pending plan across every operator, not just the one you're waiting on. Confirmed live (2026-07-28): approving a single pending LWS install plan this way also silently approved an unrelated, unplanned Service Mesh upgrade (v3.1.0 → v3.4.0, three minor versions), which broke Gateway API reconciliation cluster-wide (RHOAI 3.4.2's own gateway controller pins the Istio CR to a version the new operator refuses to install as end-of-life). Recoverable by hand, but only via RUNBOOK-servicemesh-recovery.md; the original attempt failed on ordering and unknown blocker depth. Always target a specific install plan by name, found first via a scoped query:
 
-  ```bash
+```bash
   oc get installplan -n openshift-operators -o json | python3 -c "
   import json, sys
   data = json.load(sys.stdin)
@@ -211,22 +205,30 @@ name | xargs -I{} oc patch {} ... approved:true` or similar). This approves _eve
   "
   oc patch installplan <that-specific-name> -n openshift-operators \
     --type merge -p '{"spec":{"approved":true}}'
-  ```
+```
+
+- **Do not approve any pending Service Mesh install plan.** RHOAI 3.4.2 pins Istio v1.26.2; Service Mesh operator v3.4.0 refuses to install it (end-of-life). A pending v3.4.0 channel-head plan is a permanent fixture of every environment and must never be approved. Confirmed live twice (2026-07-28).
+- **Do not treat Manual approval on the servicemesh subscription as a sufficient brake.** Install plan approval is effectively shared across subscriptions OLM resolves together; dns-operator, limitador, and authorino carry Automatic and participate in the same resolution, so a servicemesh upgrade can sweep through inside a bundled plan (install-kkl59, 2026-07-28). Prevention is the channel pin in setup-maas-phase2.sh when a stable-3.1 channel exists; the script's plan-content inspection and post-install guard are detection, and detection can arrive after shared approval has already fired. If either guard trips, stop and open RUNBOOK-servicemesh-recovery.md.
+- **Do not delete the servicemesh subscription to re-pin it.** It is an rhcl-operator dependency; the resolver recreates it within seconds, without your settings. Pin by patching the live subscription in place.
+- **Do not apply manifest directories wholesale** (`oc apply -f manifests/<dir>/`). Scripts apply named files. A directory apply is what swept the first incident's corrective manifest onto a fresh environment and detonated the second incident (ADR-0010).
+- **Do not commit one-shot corrective manifests into applyable paths** (ADR-0010). Remediation is a runbook step, not a manifest.
 
 ## If something fails
 
-| Symptom                                                        | Cause                                                                                                         | Fix                                                                                                                        |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `Access Key Id ... does not exist`                             | MinIO running stale/placeholder credentials                                                                   | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio`    |
-| `Unauthorized` on every oc command                             | Token expired (RHDP tokens are short)                                                                         | Fresh `oc login`                                                                                                           |
-| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket`     | Model not seeded yet                                                                                          | Expected before step 4; ignore                                                                                             |
-| Predictor `Pending` forever                                    | GPU label mismatch                                                                                            | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                               |
-| Route "created" then "not found"                               | Created via `oc expose` in an Argo namespace                                                                  | Apply the committed manifest instead                                                                                       |
-| `mc` TLS error over http                                       | Router forces edge TLS                                                                                        | The Ansible role falls back to https automatically                                                                         |
-| `no matches for kind "LlamaStackDistribution"`                 | Component still `Removed`; CRD absent                                                                         | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                                |
-| Workbench URL returns 500 / "Application is unavailable"       | Gateway HTTPRoute port bug (3.4.2 controller defect)                                                          | Use port-forward (step 7), not the Gateway URL                                                                             |
-| Dashboard shows "migration required, image unknown, deleted"   | Cosmetic; hand-applied Notebook lacks dashboard image-tracking annotations                                    | Ignore; check pod directly with `oc get pods -l notebook-name=complaint-intelligence-workbench`                            |
-| App pod CrashLoopBackOff on startup                            | Deployed before step 4 finished; Pipeline().setup() failed discovering the model or creating the vector store | Confirm ansible-playbook completed fully, then `oc rollout restart deployment/complaint-intelligence-app`                  |
-| App build fails with "no such file: pipeline/classify.py"      | BuildConfig's contextDir or Containerfile COPY paths don't match                                              | Confirm `contextDir: 02-complaint-intelligence` in buildconfig.yaml and that Containerfile COPY paths are relative to that |
-| Vector search returns 0 results despite files listed correctly | Llama Stack restarted after the vector store was created; Milvus's search index lost its registration         | Delete the store (`DELETE /v1/vector_stores/<id>`), recreate via the notebook's Cell 10, repopulate via Cells 6-7          |
-| Job fails: `can't open file '.../run_batch.py'`                | App image was built before `pipeline/run_batch.py` existed                                                    | `oc start-build complaint-intelligence-app -n complaint-intelligence --follow`, then re-trigger the Job                    |
+| Symptom                                                            | Cause                                                                                                         | Fix                                                                                                                        |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Access Key Id ... does not exist`                                 | MinIO running stale/placeholder credentials                                                                   | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio`    |
+| `Unauthorized` on every oc command                                 | Token expired (RHDP tokens are short)                                                                         | Fresh `oc login`                                                                                                           |
+| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket`         | Model not seeded yet                                                                                          | Expected before step 4; ignore                                                                                             |
+| Predictor `Pending` forever                                        | GPU label mismatch                                                                                            | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                               |
+| Route "created" then "not found"                                   | Created via `oc expose` in an Argo namespace                                                                  | Apply the committed manifest instead                                                                                       |
+| `mc` TLS error over http                                           | Router forces edge TLS                                                                                        | The Ansible role falls back to https automatically                                                                         |
+| `no matches for kind "LlamaStackDistribution"`                     | Component still `Removed`; CRD absent                                                                         | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                                |
+| Workbench URL returns 500 / "Application is unavailable"           | Gateway HTTPRoute port bug (3.4.2 controller defect)                                                          | Use port-forward (step 6), not the Gateway URL                                                                             |
+| Dashboard shows "migration required, image unknown, deleted"       | Cosmetic; hand-applied Notebook lacks dashboard image-tracking annotations                                    | Ignore; check pod directly with `oc get pods -l notebook-name=complaint-intelligence-workbench`                            |
+| App pod CrashLoopBackOff on startup                                | Deployed before step 4 finished; Pipeline().setup() failed discovering the model or creating the vector store | Confirm ansible-playbook completed fully, then `oc rollout restart deployment/complaint-intelligence-app`                  |
+| App build fails with "no such file: pipeline/classify.py"          | BuildConfig's contextDir or Containerfile COPY paths don't match                                              | Confirm `contextDir: 02-complaint-intelligence` in buildconfig.yaml and that Containerfile COPY paths are relative to that |
+| Vector search returns 0 results despite files listed correctly     | Llama Stack restarted after the vector store was created; Milvus's search index lost its registration         | Delete the store (`DELETE /v1/vector_stores/<id>`), recreate via the notebook's Cell 10, repopulate via Cells 6-7          |
+| Job fails: `can't open file '.../run_batch.py'`                    | App image was built before `pipeline/run_batch.py` existed                                                    | `oc start-build complaint-intelligence-app -n complaint-intelligence --follow`                                             |
+| setup-maas-phase2.sh FAIL: plan bundles servicemesh outside v3.1.x | Kuadrant dependency resolution pulled the channel-head servicemesh upgrade into the RHCL plan                 | Stop; RUNBOOK-servicemesh-recovery.md. If already approved (shared approval), check CSV state immediately: Path A likely   |
+| setup-maas-phase2.sh FAIL: CSV present but no operator deployment  | ServiceAccount/RBAC garbage-collected by a prior downgrade; stranded approved plans block recreation          | RUNBOOK-servicemesh-recovery.md, Path B (validated 2026-07-28)                                                             |
