@@ -1,10 +1,16 @@
-# NOT a MaaS resource. Corrective rollback: a blanket install-plan
-# approval during ADR-0003 Phase 1 (2026-07-28) accidentally upgraded
-# Service Mesh from v3.1.0 to v3.4.0, three minor versions past what
-# RHOAI 3.4.2's own gateway-management controller expects (it pins the
-# Istio CR to v1.26.2, which the v3.4.0 operator refuses to install as
-# end-of-life). This pins the subscription back to v3.1.0. See
-# DEPLOYMENT-LOG-2026-07-28 for the full incident.
+# Pins Service Mesh to v3.1.0, the version RHOAI 3.4.2's own gateway
+# controller was built and validated against (hardcodes Istio spec.version
+# to v1.26.2, no exposed override found in GatewayConfig or
+# DataScienceCluster). Confirmed 2026-07-28, on a genuinely fresh
+# environment: the current RHDP catalog's default channel resolves
+# Service Mesh to v3.4.0 (Istio 1.30), which the v3.4.0 operator itself
+# refuses to install for RHOAI's requested v1.26.2 as end-of-life. This
+# is a real RHOAI 3.4.2 / Service Mesh 3.4 compatibility gap, not
+# something caused by an install-plan mistake; see
+# DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md for the full
+# investigation. The Subscription itself is unowned (confirmed live),
+# safe to manage directly; the generated Istio CR is not, do not patch
+# that directly, it gets reverted by RHOAI's controller.
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
