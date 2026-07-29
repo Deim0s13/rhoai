@@ -30,11 +30,26 @@ hand-recovery "wasn't converging": unknown depth, not impossibility.
    stuck at RequirementsNotMet (missing ServiceAccount), because an
    already-executed plan never re-creates resources.
 
-2. **Resolver-driven subscription resurrection.** servicemeshoperator3 is
-   a dependency of rhcl-operator (Kuadrant). A zero-subscription state is
-   unholdable: the catalog operator recreates the subscription within
-   seconds of deletion. Delete-and-recreate as a pinning method loses the
-   race every time. Pin by patching the live subscription in place.
+2. **Subscription resurrection by the platform.** servicemeshoperator3 is
+   installed and managed by the cluster ingress operator as the
+   platform's Gateway API implementation (attribution corrected
+   2026-07-29 via managedFields; originally attributed to catalog
+   resolver action on behalf of rhcl-operator). A zero-subscription
+   state is unholdable: the ingress operator recreates its subscription
+   within seconds of deletion, with the platform's own desired spec
+   (channel stable, Manual, startingCSV v3.1.0). Delete-and-recreate as
+   a pinning method loses the race every time.
+
+Do not attempt to pin this subscription at all: foreign edits
+(including channel changes) are reverted by the ingress operator
+(confirmed 2026-07-29). The platform pins it correctly itself. Leave
+it alone.
+
+Superseded 2026-07-29: the durable prevention is namespace isolation
+(Kuadrant stack in kuadrant-system, where its plans cannot bundle the
+servicemesh upgrade). See
+DEPLOYMENT-LOG-2026-07-29-kuadrant-namespace-isolation.md. Plan-content
+inspection remains as detection.
 
 3. **CRD stored-version guard.** The v3.4.0 install left
    ztunnels.sailoperator.io with `v1` as a stored version; the v3.1.0

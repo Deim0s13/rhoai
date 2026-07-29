@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuadrant-system
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: kuadrant-operators
+  namespace: kuadrant-system
+# Empty spec = AllNamespaces mode, the only install mode rhcl-operator
+# supports. Isolation here refers to OLM plan RESOLUTION (per-namespace),
+# not the operator's watch scope (cluster-wide).

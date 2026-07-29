@@ -49,12 +49,16 @@ An OLM downgrade garbage-collected the ServiceAccount/RBAC; stranded
 approved plans block recreation. Three stacked blockers; clear in order.
 No RHOAI quiesce needed.
 
-1.  **Do not delete the subscription expecting it to stay gone.** It is a
-    Kuadrant (rhcl-operator) dependency; the resolver recreates it in
-    seconds. Ensure it is pinned by PATCHING in place:
+1.  **Do not delete the servicemesh subscription, and do not try to re-pin
+    it.** It is installed and managed by the cluster ingress operator as
+    the platform's Gateway API implementation; deletion is reverted
+    within seconds and channel edits are overwritten (confirmed
+    2026-07-29 via managedFields). The platform's own spec (stable,
+    Manual, startingCSV v3.1.0) is the correct state. Verify it rather
+    than fight it:
 
-        oc patch subscription servicemeshoperator3 -n openshift-operators \
-          --type merge -p '{"spec":{"installPlanApproval":"Manual","startingCSV":"servicemeshoperator3.v3.1.0"}}'
+        oc get subscription servicemeshoperator3 -n openshift-operators \
+          -o jsonpath='{.spec.channel}{" "}{.spec.installPlanApproval}{" "}{.spec.startingCSV}{"\n"}'
 
 2.  Delete every stranded servicemesh-only install plan (approved AND
     unapproved; approved ones are the poison, they carry false
@@ -87,3 +91,14 @@ No RHOAI quiesce needed.
       sourceNamespace: openshift-marketplace
       startingCSV: servicemeshoperator3.v3.1.0
       installPlanApproval: Manual
+
+## Prevention (supersedes recovery where applicable)
+
+Both failure modes share one root: bundled install plans in
+openshift-operators sweeping the fenced servicemesh v3.4.0 upgrade into
+an approved plan. Prevention is structural: install the Kuadrant/RHCL
+stack in its own namespace (kuadrant-system, empty-spec OperatorGroup,
+AllNamespaces mode). Plans generated there cannot bundle servicemesh.
+See setup-maas-phase2.sh and
+DEPLOYMENT-LOG-2026-07-29-kuadrant-namespace-isolation.md. Plan-content
+inspection in the script remains as the detection layer.
