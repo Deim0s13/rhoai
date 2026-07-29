@@ -25,6 +25,7 @@ export MINIO_ACCESS_KEY='minio-admin'
 export MINIO_SECRET_KEY='<choose-a-password>'    # quote it; a trailing ! breaks unquoted
 export POSTGRES_PASSWORD='<choose-a-password>'   # Llama Stack metadata store (RHOAI 3.2+)
 export HF_TOKEN='<hf-token>'
+
 # Only needed for the optional MaaS phases (ADR-0003). This password is
 # embedded in a postgresql:// connection URL, so avoid @ / : ? # < >
 export MAAS_DB_PASSWORD='<choose-a-simple-password>'
@@ -185,11 +186,15 @@ Review the "pending install plans" listing partway through the output; it should
 
 Installs the RHCL/Kuadrant stack into its own namespace (`kuadrant-system`, created by the script with an OperatorGroup), plus the dedicated `maas-gateway-class` and `maas-default-gateway`. Namespace isolation is the prevention control: OLM resolution is per-namespace, so plans generated in kuadrant-system cannot bundle the servicemesh upgrade that is permanently pending in openshift-operators (the mechanism behind both 2026-07-28 incidents; see DEPLOYMENT-LOG-2026-07-29). The script inspects the install plan's contents before approving (detection), verifies Service Mesh is unchanged afterwards, and checks for duplicate controllers. If any guard trips, stop and open RUNBOOK-servicemesh-recovery.md.
 
+A clean run ends with three guard confirmations (Service Mesh unchanged at v3.1.x, operator deployment present, no duplicate controllers) followed by the manual-steps block.
+
+Note that `authorino-operator` installs in `openshift-operators`, not `kuadrant-system`: the platform installs it for kserve, and because it is AllNamespaces, OLM resolves RHCL's dependency against that existing install rather than creating a second copy. A resolver-generated authorino subscription may exist in kuadrant-system with no CSV; that is correct, not a fault. The scripts check for it cluster-wide.
+
 ### Phase 2 manual steps: Kuadrant CR and Authorino TLS
 
-Printed by the script; not yet automated. Validated in this exact sequence on 2026-07-29.
+Printed by the script; not yet automated. Validated in this exact sequence on two environments (2026-07-28 and 2026-07-29).
 
-1. Create the Kuadrant CR:
+**Step 1: create the Kuadrant CR**
 
 ```bash
 oc apply -f manifests/maas/kuadrant-cr.yaml
@@ -204,7 +209,7 @@ oc get kuadrant -n kuadrant-system \
 
 Expect `True`. The Authorino and Limitador instances are created by this CR and land in `kuadrant-system` (confirmed; the `rh-connectivity-link` namespace referenced in upstream docs is a different install topology).
 
-2. Authorino TLS bootstrap:
+**Step 2: Authorino TLS bootstrap**
 
 ```bash
 oc annotate service authorino-authorino-authorization -n kuadrant-system \
@@ -230,14 +235,14 @@ Gate: the Authorino log shows both the gRPC auth service (port 50051) and HTTP a
 oc logs deployment/authorino -n kuadrant-system --tail=20
 ```
 
-The `security.opendatahub.io/authorino-tls-bootstrap` annotation on the Gateway is an interim mechanism pending native Gateway-to-Authorino TLS support (CONNLINK-528). Worth stating honestly in any customer production-timeline conversation.
+The Gateway's `security.opendatahub.io/authorino-tls-bootstrap` annotation (already applied by `gateway.yaml` in phase 2) is an interim mechanism pending native Gateway-to-Authorino TLS support (CONNLINK-528). Worth stating honestly in any customer production-timeline conversation.
 
 ### Phase 3: MaaS platform
 
-    export MAAS_DB_PASSWORD='<simple-password>'
+    export MAAS_DB_PASSWORD='<choose-a-simple-password>'
     ./scripts/setup-maas-phase3.sh
 
-Deploys a dedicated PostgreSQL in `maas-platform`, creates the `maas-db-config` secret in `redhat-ods-applications` (single key `DB_CONNECTION_URL`), enables `modelsAsService` under the kserve component in the DataScienceCluster, and gates on the MaaS Tenant CR reaching Ready. Guards check the phase 2 prerequisites including a Ready Kuadrant CR, so it fails clearly if the manual steps above were skipped. Idempotent; safe to re-run.
+Deploys a dedicated PostgreSQL in `maas-platform`, creates the `maas-db-config` secret in `redhat-ods-applications` (single key `DB_CONNECTION_URL`), enables `modelsAsService` under the kserve component in the DataScienceCluster, and gates on the MaaS Tenant CR reaching Ready. Guards check the phase 2 prerequisites cluster-wide (all four operators Succeeded as real installs in whichever namespace they legitimately occupy), including a Ready Kuadrant CR, so it fails clearly if the manual steps above were skipped. Idempotent; safe to re-run.
 
 Expected end state:
 
@@ -256,6 +261,7 @@ What MaaS creates on enablement: `gateway-default-deny` (TokenRateLimitPolicy), 
 - **Do not `oc expose`** anything in this namespace. Argo prunes it (ADR-0005). Network edge = a manifest.
 - **Do not port-forward for the model upload.** It drops on multi-GiB transfers. The Route exists for this.
 - **Do not put secret templates under `manifests/`.** Argo applies them raw (ADR-0005).
+- **Do not put phase-specific secret templates directly in `secrets/`.** Bootstrap renders `secrets/*.template.yaml` non-recursively and applies everything to `complaint-intelligence`. Templates targeting other namespaces (MaaS: `maas-platform` and `redhat-ods-applications`) live in `secrets/maas/` and are rendered by their own phase script. Confirmed 2026-07-29: a MaaS template left in `secrets/` aborts bootstrap on a namespace mismatch.
 - **Do not activate operators through the console.** The bootstrap patches the DataScienceCluster. A console click is an undocumented manual step and will not survive a rebuild.
 - **Do not trust `oc get applications`.** Use `oc get applications.argoproj.io`; the short name can resolve to a different CRD.
 - **Do not use the RHOAI dashboard's Open button for this workbench.** Broken on 3.4.2 for hand-applied Notebook objects; use port-forward (step 6).
@@ -283,23 +289,25 @@ What MaaS creates on enablement: `gateway-default-deny` (TokenRateLimitPolicy), 
 
 ## If something fails
 
-| Symptom                                                            | Cause                                                                                                         | Fix                                                                                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `Access Key Id ... does not exist`                                 | MinIO running stale/placeholder credentials                                                                   | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio`    |
-| `Unauthorized` on every oc command                                 | Token expired (RHDP tokens are short)                                                                         | Fresh `oc login`                                                                                                           |
-| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket`         | Model not seeded yet                                                                                          | Expected before step 4; ignore                                                                                             |
-| Predictor `Pending` forever                                        | GPU label mismatch                                                                                            | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                               |
-| Route "created" then "not found"                                   | Created via `oc expose` in an Argo namespace                                                                  | Apply the committed manifest instead                                                                                       |
-| `mc` TLS error over http                                           | Router forces edge TLS                                                                                        | The Ansible role falls back to https automatically                                                                         |
-| `no matches for kind "LlamaStackDistribution"`                     | Component still `Removed`; CRD absent                                                                         | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                                |
-| Workbench URL returns 500 / "Application is unavailable"           | Gateway HTTPRoute port bug (3.4.2 controller defect)                                                          | Use port-forward (step 6), not the Gateway URL                                                                             |
-| Dashboard shows "migration required, image unknown, deleted"       | Cosmetic; hand-applied Notebook lacks dashboard image-tracking annotations                                    | Ignore; check pod directly with `oc get pods -l notebook-name=complaint-intelligence-workbench`                            |
-| App pod CrashLoopBackOff on startup                                | Deployed before step 4 finished; Pipeline().setup() failed discovering the model or creating the vector store | Confirm ansible-playbook completed fully, then `oc rollout restart deployment/complaint-intelligence-app`                  |
-| App build fails with "no such file: pipeline/classify.py"          | BuildConfig's contextDir or Containerfile COPY paths don't match                                              | Confirm `contextDir: 02-complaint-intelligence` in buildconfig.yaml and that Containerfile COPY paths are relative to that |
-| Vector search returns 0 results despite files listed correctly     | Llama Stack restarted after the vector store was created; Milvus's search index lost its registration         | Delete the store (`DELETE /v1/vector_stores/<id>`), recreate via the notebook's Cell 10, repopulate via Cells 6-7          |
-| Job fails: `can't open file '.../run_batch.py'`                    | App image was built before `pipeline/run_batch.py` existed                                                    | `oc start-build complaint-intelligence-app -n complaint-intelligence --follow`                                             |
-| setup-maas-phase2.sh FAIL: plan bundles servicemesh outside v3.1.x | Kuadrant dependency resolution pulled the channel-head servicemesh upgrade into the RHCL plan                 | Stop; RUNBOOK-servicemesh-recovery.md. If already approved (shared approval), check CSV state immediately: Path A likely   |
-| setup-maas-phase2.sh FAIL: CSV present but no operator deployment  | ServiceAccount/RBAC garbage-collected by a prior downgrade; stranded approved plans block recreation          | RUNBOOK-servicemesh-recovery.md, Path B (validated 2026-07-28)                                                             |
-| Phase 3 FAIL: no Ready Kuadrant CR in kuadrant-system              | Phase 2's manual steps (Kuadrant CR, TLS bootstrap) not completed                                             | Run them per the MaaS section above, confirm Ready, re-run phase 3                                                         |
-| Phase 3 FAIL: Tenant did not reach Ready                           | Usually maas-db-config connection string wrong or database unreachable                                        | `oc logs deployment/maas-api -n redhat-ods-applications`; check DB_CONNECTION_URL and that maas-postgres is Running        |
-| maas-postgres `ImagePullBackOff`                                   | `registry.redhat.io/rhel9/postgresql-16` not pullable on this cluster                                         | Swap to the same PostgreSQL image the Llama Stack deployment uses; it is proven to pull on this platform                   |
+| Symptom                                                               | Cause                                                                                                         | Fix                                                                                                                        |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Access Key Id ... does not exist`                                    | MinIO running stale/placeholder credentials                                                                   | `oc exec deploy/minio -- env \| grep MINIO_ROOT`; if it shows `${...}`, re-render and `oc rollout restart deploy/minio`    |
+| `Unauthorized` on every oc command                                    | Token expired (RHDP tokens are short)                                                                         | Fresh `oc login`                                                                                                           |
+| Predictor `Init:CrashLoopBackOff`, log says `NoSuchBucket`            | Model not seeded yet                                                                                          | Expected before step 4; ignore                                                                                             |
+| Predictor `Pending` forever                                           | GPU label mismatch                                                                                            | Check `nvidia.com/gpu.product` on nodes vs the InferenceService nodeSelector                                               |
+| Route "created" then "not found"                                      | Created via `oc expose` in an Argo namespace                                                                  | Apply the committed manifest instead                                                                                       |
+| `mc` TLS error over http                                              | Router forces edge TLS                                                                                        | The Ansible role falls back to https automatically                                                                         |
+| `no matches for kind "LlamaStackDistribution"`                        | Component still `Removed`; CRD absent                                                                         | Bootstrap handles this; if hit manually, patch the DSC and wait for the CRD                                                |
+| An operator looks missing or duplicated in `oc get csv`               | AllNamespaces CSVs are projected read-only into every namespace                                               | Filter copies: exclude any CSV carrying the `olm.copiedFrom` label; only unlabelled ones are real installs                 |
+| Workbench URL returns 500 / "Application is unavailable"              | Gateway HTTPRoute port bug (3.4.2 controller defect)                                                          | Use port-forward (step 6), not the Gateway URL                                                                             |
+| Dashboard shows "migration required, image unknown, deleted"          | Cosmetic; hand-applied Notebook lacks dashboard image-tracking annotations                                    | Ignore; check pod directly with `oc get pods -l notebook-name=complaint-intelligence-workbench`                            |
+| App pod CrashLoopBackOff on startup                                   | Deployed before step 4 finished; Pipeline().setup() failed discovering the model or creating the vector store | Confirm ansible-playbook completed fully, then `oc rollout restart deployment/complaint-intelligence-app`                  |
+| App build fails with "no such file: pipeline/classify.py"             | BuildConfig's contextDir or Containerfile COPY paths don't match                                              | Confirm `contextDir: 02-complaint-intelligence` in buildconfig.yaml and that Containerfile COPY paths are relative to that |
+| Vector search returns 0 results despite files listed correctly        | Llama Stack restarted after the vector store was created; Milvus's search index lost its registration         | Delete the store (`DELETE /v1/vector_stores/<id>`), recreate via the notebook's Cell 10, repopulate via Cells 6-7          |
+| Job fails: `can't open file '.../run_batch.py'`                       | App image was built before `pipeline/run_batch.py` existed                                                    | `oc start-build complaint-intelligence-app -n complaint-intelligence --follow`                                             |
+| Bootstrap aborts: "namespace from the provided object does not match" | A phase-specific secret template is sitting in `secrets/` and got picked up by the non-recursive render       | Move it to its phase subdirectory (MaaS: `secrets/maas/`) and update that phase script's envsubst path                     |
+| setup-maas-phase2.sh FAIL: plan bundles servicemesh outside v3.1.x    | Kuadrant dependency resolution pulled the channel-head servicemesh upgrade into the RHCL plan                 | Stop; RUNBOOK-servicemesh-recovery.md. If already approved (shared approval), check CSV state immediately: Path A likely   |
+| setup-maas-phase2.sh FAIL: CSV present but no operator deployment     | ServiceAccount/RBAC garbage-collected by a prior downgrade; stranded approved plans block recreation          | RUNBOOK-servicemesh-recovery.md, Path B (validated 2026-07-28)                                                             |
+| Phase 3 FAIL: no Ready Kuadrant CR in kuadrant-system                 | Phase 2's manual steps (Kuadrant CR, TLS bootstrap) not completed                                             | Run them per the MaaS section above, confirm Ready, re-run phase 3                                                         |
+| Phase 3 FAIL: Tenant did not reach Ready                              | Usually maas-db-config connection string wrong or database unreachable                                        | `oc logs deployment/maas-api -n redhat-ods-applications`; check DB_CONNECTION_URL and that maas-postgres is Running        |
+| maas-postgres `ImagePullBackOff`                                      | `registry.redhat.io/rhel9/postgresql-16` not pullable on this cluster                                         | Swap to the same PostgreSQL image the Llama Stack deployment uses; it is proven to pull on this platform                   |
