@@ -18,20 +18,27 @@ echo "=== ADR-0003 Phase 3: MaaS platform ==="
 echo
 
 echo "--- Guard: Phase 2 prerequisites ---"
+# Namespace-agnostic by design: rhcl, limitador and dns-operator install
+# into kuadrant-system, while authorino-operator is the platform's own
+# install in openshift-operators. What matters is that each is Succeeded
+# as a real (non-copied) install somewhere.
 for csv in rhcl-operator authorino-operator limitador-operator dns-operator; do
-  PHASE=$(oc get csv -n kuadrant-system -o json | python3 -c "
+  FOUND=$(oc get csv -A -o json | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for i in data['items']:
     if i['metadata'].get('labels', {}).get('olm.copiedFrom'): continue
     if i['metadata']['name'].startswith('${csv}'):
-        print(i['status'].get('phase','')); break
+        print(i['metadata']['namespace'], i['status'].get('phase','')); break
 ")
-  if [ "${PHASE}" != "Succeeded" ]; then
-    echo "FAIL: ${csv} not Succeeded in kuadrant-system (phase: ${PHASE:-absent})."
-    echo "Run setup-maas-phase2.sh first."
-    exit 1
-  fi
+  case "${FOUND}" in
+    *Succeeded) echo "OK: ${csv} (${FOUND%% *})" ;;
+    *)
+      echo "FAIL: ${csv} not Succeeded anywhere (saw: ${FOUND:-absent})."
+      echo "Run setup-maas-phase2.sh first."
+      exit 1
+      ;;
+  esac
 done
 
 # The Kuadrant CR is created by the manual steps printed at the end of
@@ -90,7 +97,7 @@ echo
 
 echo "--- Deploying MaaS PostgreSQL (maas-platform) ---"
 oc apply -f manifests/maas/maas-postgres.yaml
-envsubst < secrets/maas-secrets.template.yaml | oc apply -f -
+envsubst < secrets/maas/maas-secrets.template.yaml | oc apply -f -
 oc rollout status deployment/maas-postgres -n maas-platform --timeout=180s
 echo
 

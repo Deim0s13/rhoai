@@ -114,13 +114,16 @@ fi
 echo
 
 echo "--- Waiting for the Kuadrant stack to install (up to 5 minutes) ---"
-EXPECTED="rhcl-operator authorino-operator limitador-operator dns-operator"
+EXPECTED="rhcl-operator limitador-operator dns-operator"
 ALL_UP=""
 for i in $(seq 1 30); do
   ALL_UP=$(oc get csv -n kuadrant-system -o json | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-want = ['rhcl-operator', 'authorino-operator', 'limitador-operator', 'dns-operator']
+# authorino-operator excluded: it installs in openshift-operators (platform,
+# for kserve) and OLM resolves rhcl's dependency against it, so it never
+# produces a CSV in kuadrant-system. Phase 3's guard verifies it cluster-wide.
+want = ['rhcl-operator', 'limitador-operator', 'dns-operator']
 phases = {}
 for item in data['items']:
     if item['metadata'].get('labels', {}).get('olm.copiedFrom'):
@@ -131,9 +134,10 @@ for item in data['items']:
 print('yes' if all(phases.get(w) == 'Succeeded' for w in want) else 'no')
 ")
   if [ "${ALL_UP}" == "yes" ]; then
-    echo "PASS: rhcl, authorino, limitador, dns-operator all Succeeded in kuadrant-system."
-    break
-  fi
+      echo "PASS: rhcl, limitador, dns-operator all Succeeded in kuadrant-system."
+      echo "      (authorino-operator is the platform install in openshift-operators.)"
+      break
+    fi
   sleep 10
 done
 
@@ -160,12 +164,18 @@ fi
 echo
 
 echo "--- Guard: no duplicate Kuadrant controllers in openshift-operators ---"
+# authorino-operator is deliberately excluded: the platform installs it in
+# openshift-operators for kserve. Because it is AllNamespaces, OLM resolves
+# rhcl's authorino dependency against that existing install rather than
+# creating a second one. A resolver-generated authorino subscription may
+# exist in kuadrant-system with no CSV; that is correct, not a fault.
+# (Confirmed on a virgin cluster 2026-07-29.)
 DUPES=$(oc get csv -n openshift-operators -o json | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for item in data['items']:
     n = item['metadata']['name'].lower()
-    if any(x in n for x in ('rhcl', 'authorino', 'limitador', 'dns-operator')):
+    if any(x in n for x in ('rhcl', 'limitador', 'dns-operator')):
         if not item['metadata'].get('labels', {}).get('olm.copiedFrom'):
             print(item['metadata']['name'])
 ")

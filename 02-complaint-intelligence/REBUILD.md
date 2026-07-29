@@ -192,21 +192,14 @@ Printed by the script; not yet automated. Validated in this exact sequence on 20
 1. Create the Kuadrant CR:
 
 ```bash
-   oc apply -f - <<'EOF'
-   apiVersion: kuadrant.io/v1beta1
-   kind: Kuadrant
-   metadata:
-     name: kuadrant
-     namespace: kuadrant-system
-   spec: {}
-   EOF
+oc apply -f manifests/maas/kuadrant-cr.yaml
 ```
 
 Gate (allow about a minute):
 
 ```bash
-   oc get kuadrant -n kuadrant-system \
-     -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}{"\n"}'
+oc get kuadrant -n kuadrant-system \
+  -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}{"\n"}'
 ```
 
 Expect `True`. The Authorino and Limitador instances are created by this CR and land in `kuadrant-system` (confirmed; the `rh-connectivity-link` namespace referenced in upstream docs is a different install topology).
@@ -214,27 +207,27 @@ Expect `True`. The Authorino and Limitador instances are created by this CR and 
 2. Authorino TLS bootstrap:
 
 ```bash
-   oc annotate service authorino-authorino-authorization -n kuadrant-system \
-     service.beta.openshift.io/serving-cert-secret-name=authorino-server-cert --overwrite
+oc annotate service authorino-authorino-authorization -n kuadrant-system \
+  service.beta.openshift.io/serving-cert-secret-name=authorino-server-cert --overwrite
 ```
 
 Gate: `oc get secret authorino-server-cert -n kuadrant-system` returns a `kubernetes.io/tls` secret within about ten seconds. Then:
 
 ```bash
-   oc patch authorino authorino -n kuadrant-system --type=merge --patch '
-   {"spec":{"listener":{"tls":{"enabled":true,"certSecretRef":{"name":"authorino-server-cert"}}}}}'
+oc patch authorino authorino -n kuadrant-system --type=merge \
+  --patch '{"spec":{"listener":{"tls":{"enabled":true,"certSecretRef":{"name":"authorino-server-cert"}}}}}'
 
-   oc -n kuadrant-system set env deployment/authorino \
-     SSL_CERT_FILE=/etc/ssl/certs/openshift-service-ca/service-ca-bundle.crt \
-     REQUESTS_CA_BUNDLE=/etc/ssl/certs/openshift-service-ca/service-ca-bundle.crt
+oc -n kuadrant-system set env deployment/authorino \
+  SSL_CERT_FILE=/etc/ssl/certs/openshift-service-ca/service-ca-bundle.crt \
+  REQUESTS_CA_BUNDLE=/etc/ssl/certs/openshift-service-ca/service-ca-bundle.crt
 
-   oc rollout status deployment/authorino -n kuadrant-system --timeout=120s
+oc rollout status deployment/authorino -n kuadrant-system --timeout=120s
 ```
 
 Gate: the Authorino log shows both the gRPC auth service (port 50051) and HTTP auth service (port 5001) starting with `tls:true`. The OIDC service on 8083 is plain by design.
 
 ```bash
-   oc logs deployment/authorino -n kuadrant-system --tail=20
+oc logs deployment/authorino -n kuadrant-system --tail=20
 ```
 
 The `security.opendatahub.io/authorino-tls-bootstrap` annotation on the Gateway is an interim mechanism pending native Gateway-to-Authorino TLS support (CONNLINK-528). Worth stating honestly in any customer production-timeline conversation.

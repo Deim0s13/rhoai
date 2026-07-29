@@ -10,6 +10,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# --- Guard 0: confirm the cd above landed where we expect. It resolves
+# relative to the script's location, so it succeeds silently if the script
+# is copied or symlinked elsewhere, and every later path then fails
+# confusingly instead of here.
+if [ ! -d "manifests" ] || [ ! -d "secrets" ]; then
+  echo "ERROR: expected to be in 02-complaint-intelligence after cd, but"
+  echo "manifests/ and secrets/ are not both present. Current: $(pwd)"
+  exit 1
+fi
+
 NS=complaint-intelligence
 
 # --- Guard 1: envsubst must exist. Without it, secrets reach the cluster with
