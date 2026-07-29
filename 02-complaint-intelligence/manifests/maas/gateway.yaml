@@ -18,6 +18,9 @@ metadata:
   name: maas-default-gateway
   namespace: openshift-ingress
   annotations:
+    # Prevents the ODH Model Controller from overriding MaaS-managed
+    # authorization on this Gateway. Required per RHOAI 3.4 MaaS docs;
+    # absence is silent, authorization simply does not behave as configured.
     opendatahub.io/managed: "false"
     security.opendatahub.io/authorino-tls-bootstrap: "true"
 spec:
