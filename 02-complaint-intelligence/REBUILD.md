@@ -25,6 +25,9 @@ export MINIO_ACCESS_KEY='minio-admin'
 export MINIO_SECRET_KEY='<choose-a-password>'    # quote it; a trailing ! breaks unquoted
 export POSTGRES_PASSWORD='<choose-a-password>'   # Llama Stack metadata store (RHOAI 3.2+)
 export HF_TOKEN='<hf-token>'
+# Only needed for the optional MaaS phases (ADR-0003). This password is
+# embedded in a postgresql:// connection URL, so avoid @ / : ? # < >
+export MAAS_DB_PASSWORD='<choose-a-simple-password>'
 ```
 
 Keep these in ONE terminal tab for the whole run. Lost exports were the single biggest time sink in the first live session.
@@ -168,20 +171,92 @@ Not part of the standard rebuild. Only relevant if evaluating the Economics pill
 
 **Run MaaS phases only after step 7's smoke test passes.** The core build has zero Service Mesh dependency (confirmed 2026-07-28: maas-default-gateway runs on the OpenShift ingress gateway controller, and the demo path uses Routes and service DNS). Keeping the two failure domains separated means a servicemesh guard trip cannot be confused with a broken core build.
 
-    chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh
+    chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh scripts/setup-maas-phase3.sh
+
+### Phase 1: prerequisites
 
     ./scripts/setup-maas-phase1.sh
 
 Review the "pending install plans" listing partway through the output; it should show only the LWS plan being acted on.
 
+### Phase 2: Kuadrant stack (isolated namespace)
+
     ./scripts/setup-maas-phase2.sh
 
-Installs the RHCL/Kuadrant stack into its own namespace (`kuadrant-system`, created by the script with an OperatorGroup), plus the dedicated `maas-gateway-class` and `maas-default-gateway`. Namespace isolation is the prevention control: OLM resolution is per-namespace, so plans generated in kuadrant-system cannot bundle the servicemesh upgrade that is permanently pending in openshift-operators (the mechanism behind both 2026-07-28 incidents; see DEPLOYMENT-LOG-2026-07-29). The script still inspects the install plan's contents before approving (detection), verifies Service Mesh is unchanged afterwards, and checks for duplicate controllers. Stops after the operator install and prints the remaining manual steps (Kuadrant CR, Authorino TLS bootstrap), run once live on 2026-07-28 but not yet scripted; follow the printed steps, cross-referencing docs.redhat.com's "Configure TLS for Models-as-a-Service". If any guard trips, stop and open RUNBOOK-servicemesh-recovery.md.
+Installs the RHCL/Kuadrant stack into its own namespace (`kuadrant-system`, created by the script with an OperatorGroup), plus the dedicated `maas-gateway-class` and `maas-default-gateway`. Namespace isolation is the prevention control: OLM resolution is per-namespace, so plans generated in kuadrant-system cannot bundle the servicemesh upgrade that is permanently pending in openshift-operators (the mechanism behind both 2026-07-28 incidents; see DEPLOYMENT-LOG-2026-07-29). The script inspects the install plan's contents before approving (detection), verifies Service Mesh is unchanged afterwards, and checks for duplicate controllers. If any guard trips, stop and open RUNBOOK-servicemesh-recovery.md.
 
-**Do not run Phase 2 without Phase 1 confirmed clean first**
-(`scripts/setup-maas-phase1.sh` completing with no failures, Service Mesh
-untouched). See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md` and
-`DEPLOYMENT-LOG-2026-07-28-servicemesh-recovery.md` for why this matters.
+### Phase 2 manual steps: Kuadrant CR and Authorino TLS
+
+Printed by the script; not yet automated. Validated in this exact sequence on 2026-07-29.
+
+1. Create the Kuadrant CR:
+
+```bash
+   oc apply -f - <<'EOF'
+   apiVersion: kuadrant.io/v1beta1
+   kind: Kuadrant
+   metadata:
+     name: kuadrant
+     namespace: kuadrant-system
+   spec: {}
+   EOF
+```
+
+Gate (allow about a minute):
+
+```bash
+   oc get kuadrant -n kuadrant-system \
+     -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}{"\n"}'
+```
+
+Expect `True`. The Authorino and Limitador instances are created by this CR and land in `kuadrant-system` (confirmed; the `rh-connectivity-link` namespace referenced in upstream docs is a different install topology).
+
+2. Authorino TLS bootstrap:
+
+```bash
+   oc annotate service authorino-authorino-authorization -n kuadrant-system \
+     service.beta.openshift.io/serving-cert-secret-name=authorino-server-cert --overwrite
+```
+
+Gate: `oc get secret authorino-server-cert -n kuadrant-system` returns a `kubernetes.io/tls` secret within about ten seconds. Then:
+
+```bash
+   oc patch authorino authorino -n kuadrant-system --type=merge --patch '
+   {"spec":{"listener":{"tls":{"enabled":true,"certSecretRef":{"name":"authorino-server-cert"}}}}}'
+
+   oc -n kuadrant-system set env deployment/authorino \
+     SSL_CERT_FILE=/etc/ssl/certs/openshift-service-ca/service-ca-bundle.crt \
+     REQUESTS_CA_BUNDLE=/etc/ssl/certs/openshift-service-ca/service-ca-bundle.crt
+
+   oc rollout status deployment/authorino -n kuadrant-system --timeout=120s
+```
+
+Gate: the Authorino log shows both the gRPC auth service (port 50051) and HTTP auth service (port 5001) starting with `tls:true`. The OIDC service on 8083 is plain by design.
+
+```bash
+   oc logs deployment/authorino -n kuadrant-system --tail=20
+```
+
+The `security.opendatahub.io/authorino-tls-bootstrap` annotation on the Gateway is an interim mechanism pending native Gateway-to-Authorino TLS support (CONNLINK-528). Worth stating honestly in any customer production-timeline conversation.
+
+### Phase 3: MaaS platform
+
+    export MAAS_DB_PASSWORD='<simple-password>'
+    ./scripts/setup-maas-phase3.sh
+
+Deploys a dedicated PostgreSQL in `maas-platform`, creates the `maas-db-config` secret in `redhat-ods-applications` (single key `DB_CONNECTION_URL`), enables `modelsAsService` under the kserve component in the DataScienceCluster, and gates on the MaaS Tenant CR reaching Ready. Guards check the phase 2 prerequisites including a Ready Kuadrant CR, so it fails clearly if the manual steps above were skipped. Idempotent; safe to re-run.
+
+Expected end state:
+
+```bash
+oc get pods -n redhat-ods-applications | grep -i maas
+```
+
+`maas-api` and `maas-controller` Running, plus a `maas-api-key-cleanup` CronJob on a 15-minute schedule (API key expiry enforcement; default key lifetime is 90 days).
+
+What MaaS creates on enablement: `gateway-default-deny` (TokenRateLimitPolicy), `gateway-default-auth` (AuthPolicy) on the gateway, and `maas-api-auth-policy` protecting maas-api. Note that tiers are **not** shipped as CRs; the platform's out-of-box posture is deny-by-default and tier policies (PlanPolicy, TokenRateLimitPolicy) are authored deliberately. Model registration and tier authoring are Phase 4, not yet built.
+
+**Do not run any phase without the previous one confirmed clean.** See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md`, `DEPLOYMENT-LOG-2026-07-28-servicemesh-recovery.md` and `DEPLOYMENT-LOG-2026-07-29-kuadrant-namespace-isolation.md` for why this matters.
 
 ## Do not
 
@@ -232,3 +307,6 @@ untouched). See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md` and
 | Job fails: `can't open file '.../run_batch.py'`                    | App image was built before `pipeline/run_batch.py` existed                                                    | `oc start-build complaint-intelligence-app -n complaint-intelligence --follow`                                             |
 | setup-maas-phase2.sh FAIL: plan bundles servicemesh outside v3.1.x | Kuadrant dependency resolution pulled the channel-head servicemesh upgrade into the RHCL plan                 | Stop; RUNBOOK-servicemesh-recovery.md. If already approved (shared approval), check CSV state immediately: Path A likely   |
 | setup-maas-phase2.sh FAIL: CSV present but no operator deployment  | ServiceAccount/RBAC garbage-collected by a prior downgrade; stranded approved plans block recreation          | RUNBOOK-servicemesh-recovery.md, Path B (validated 2026-07-28)                                                             |
+| Phase 3 FAIL: no Ready Kuadrant CR in kuadrant-system              | Phase 2's manual steps (Kuadrant CR, TLS bootstrap) not completed                                             | Run them per the MaaS section above, confirm Ready, re-run phase 3                                                         |
+| Phase 3 FAIL: Tenant did not reach Ready                           | Usually maas-db-config connection string wrong or database unreachable                                        | `oc logs deployment/maas-api -n redhat-ods-applications`; check DB_CONNECTION_URL and that maas-postgres is Running        |
+| maas-postgres `ImagePullBackOff`                                   | `registry.redhat.io/rhel9/postgresql-16` not pullable on this cluster                                         | Swap to the same PostgreSQL image the Llama Stack deployment uses; it is proven to pull on this platform                   |
