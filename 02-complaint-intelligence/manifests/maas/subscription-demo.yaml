@@ -1,0 +1,26 @@
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: demo-subscription
+  namespace: models-as-a-service
+spec:
+  owner:
+    groups:
+      - name: system:authenticated
+  priority: 1
+  modelRefs:
+    - name: qwen3-06b
+      namespace: maas-models
+      tokenRateLimits:
+        # Deliberately tiny so exhaustion is demonstrable in seconds.
+        # Raise for realistic use.
+        - limit: 500
+          window: 1m
+      billingRate:
+        perToken: "0.000002"
+  tokenMetadata:
+    costCenter: "ANZ-DEMO-CC-001"
+    organizationId: "anz-nz-complaints"
+    labels:
+      useCase: "UC02-complaint-intelligence"
+      environment: "presales-lab"
