@@ -12,12 +12,14 @@ spec:
     - name: qwen3-06b
       namespace: maas-models
       tokenRateLimits:
-        # Deliberately tiny so exhaustion is demonstrable in seconds.
-        # Raise for realistic use.
+        # Deliberately small so exhaustion is demonstrable in seconds.
+        # window units: s, m, h only. Days are not supported, use 24h.
         - limit: 500
           window: 1m
       billingRate:
         perToken: "0.000002"
+  # Chargeback primitives are native to the CRD, not assembled from
+  # metrics afterwards. This is the Economics pillar in configuration.
   tokenMetadata:
     costCenter: "ANZ-DEMO-CC-001"
     organizationId: "anz-nz-complaints"

@@ -254,6 +254,36 @@ oc get pods -n redhat-ods-applications | grep -i maas
 
 What MaaS creates on enablement: `gateway-default-deny` (TokenRateLimitPolicy), `gateway-default-auth` (AuthPolicy) on the gateway, and `maas-api-auth-policy` protecting maas-api. Note that tiers are **not** shipped as CRs; the platform's out-of-box posture is deny-by-default and tier policies (PlanPolicy, TokenRateLimitPolicy) are authored deliberately. Model registration and tier authoring are Phase 4, not yet built.
 
+### Phase 4: publish a model and subscribe
+
+    ./scripts/setup-maas-phase4.sh
+
+Deploys Qwen3-0.6B as an `LLMInferenceService` that opts in to the MaaS gateway, publishes it with a `MaaSModelRef`, and attaches a `MaaSSubscription` carrying a token budget, billing rate and cost-centre metadata. Gates on the model serving, the MaaSModelRef reaching Ready, and the subscription reconciling into a `TokenRateLimitPolicy`.
+
+First run is slow: the model pulls from Hugging Face. The model co-tenants on the single L4 with UC02's Granite and is constrained to roughly 9% of the card; it requests no `nvidia.com/gpu` deliberately, since Granite holds the only GPU and a resource request would leave it Pending forever.
+
+Verify deny-by-default (expect **403**, no credentials):
+
+```bash
+GW=https://$(oc get gateway maas-default-gateway -n openshift-ingress \
+  -o jsonpath='{.status.addresses[0].value}')
+
+curl -sk -o /dev/null -w "%{http_code}\n" \
+  -X POST "$GW/maas-models/qwen3-06b/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"hello"}],"max_tokens":10}'
+```
+
+Model discovery through maas-api:
+
+```bash
+curl -sk "$GW/v1/models" -H "Authorization: Bearer $(oc whoami -t)"
+```
+
+Consumption paths are `/{namespace}/{model}/v1/chat/completions` (also `/v1/completions` and `/v1/responses`), created automatically when the model is published.
+
+`-k` is required and the address must be read from the Gateway status: wildcard DNS for `*.apps` points at the default ingress router, not at this gateway's load balancer, so the listener carries no hostname and the wildcard certificate does not match the address. A customer environment resolves this with a DNS record or a Kuadrant DNSPolicy.
+
 **Do not run any phase without the previous one confirmed clean.** See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md`, `DEPLOYMENT-LOG-2026-07-28-servicemesh-recovery.md` and `DEPLOYMENT-LOG-2026-07-29-kuadrant-namespace-isolation.md` for why this matters.
 
 ## Do not
@@ -268,6 +298,9 @@ What MaaS creates on enablement: `gateway-default-deny` (TokenRateLimitPolicy), 
 - **Do not add a Route to work around the broken Gateway URL.** A controller-generated NetworkPolicy blocks it by design; port-forward is the only working path.
 - **Do not re-run `ansible-playbook ansible/site.yml` after the vector store has been created and populated.** `sync_llama_stack` restarts the Llama Stack pod every run. If that restart lands before the vector store's registration has durably persisted, Milvus's search index loses track of the store, file listings and uploads still work, search silently returns zero results (`VectorStoreNotFoundError` in the pod logs, not visible from the notebook side). Safe on a fresh rebuild: the playbook completes fully before the notebook creates the store. Only a risk if re-running the playbook after the notebook has already populated data. If something genuinely needs re-seeding at that point, delete and recreate the vector store afterward rather than trusting it survived the restart.
 - **Do not blanket-approve pending install plans** (`oc get installplan -o name | xargs -I{} oc patch {} ... approved:true` or similar). This approves _every_ pending plan across every operator, not just the one you're waiting on. Confirmed live (2026-07-28): approving a single pending LWS install plan this way also silently approved an unrelated, unplanned Service Mesh upgrade (v3.1.0 → v3.4.0, three minor versions), which broke Gateway API reconciliation cluster-wide (RHOAI 3.4.2's own gateway controller pins the Istio CR to a version the new operator refuses to install as end-of-life). Recoverable by hand, but only via RUNBOOK-servicemesh-recovery.md; the original attempt failed on ordering and unknown blocker depth. Always target a specific install plan by name, found first via a scoped query:
+- - **Do not request `nvidia.com/gpu` for the MaaS demonstration model.** The NVIDIA runtime exposes the device regardless of resource requests, so the pod sees `cuda:0` without asking. Granite holds the only card, so a resource request leaves the pod Pending forever. Constrain vLLM's memory fraction instead (`--gpu-memory-utilization`), and expect a CrashLoopBackOff with `Free memory on device cuda:0 ... less than desired GPU memory utilization` if the fraction is too high. Confirmed 2026-07-31.
+- **Do not add a hostname to the maas-default-gateway listener.** Wildcard DNS for `*.apps` resolves to the default ingress router, not to this gateway's load balancer, so a hostname routes traffic to the wrong LB. Read the address from `.status.addresses[0].value`. Confirmed 2026-07-31.
+- **Do not remove the `allowedRoutes` selector from the gateway listener.** It is the control on which namespaces may publish models under governance. Both `maas-models` and `redhat-ods-applications` must carry `maas.opendatahub.io/publish=true`; the second is applied by phase 3 and without it the platform's own `/v1/models` route silently fails to attach.
 
 ```bash
   oc get installplan -n openshift-operators -o json | python3 -c "
@@ -311,3 +344,7 @@ What MaaS creates on enablement: `gateway-default-deny` (TokenRateLimitPolicy), 
 | Phase 3 FAIL: no Ready Kuadrant CR in kuadrant-system                 | Phase 2's manual steps (Kuadrant CR, TLS bootstrap) not completed                                             | Run them per the MaaS section above, confirm Ready, re-run phase 3                                                         |
 | Phase 3 FAIL: Tenant did not reach Ready                              | Usually maas-db-config connection string wrong or database unreachable                                        | `oc logs deployment/maas-api -n redhat-ods-applications`; check DB_CONNECTION_URL and that maas-postgres is Running        |
 | maas-postgres `ImagePullBackOff`                                      | `registry.redhat.io/rhel9/postgresql-16` not pullable on this cluster                                         | Swap to the same PostgreSQL image the Llama Stack deployment uses; it is proven to pull on this platform                   |
+| curl returns `000` against the gateway                                | Listener has no resolvable TLS certificate; TCP connects then the handshake is dropped                        | Confirm `certificateRefs` in gateway.yaml and that the secret exists in openshift-ingress                                  |
+| LLMISVC stuck `HTTPRoutesNotReady`                                    | Route rejected by the listener: namespace not permitted                                                       | Check the HTTPRoute status for `NotAllowedByListeners`; label the namespace `maas.opendatahub.io/publish=true`             |
+| `/v1/models` returns 404                                              | `maas-api-route` not attached: `redhat-ods-applications` missing the publish label                            | `oc label namespace redhat-ods-applications maas.opendatahub.io/publish=true --overwrite` (phase 3 does this)              |
+| Model pod CrashLoopBackOff, log shows `Free memory on device cuda:0`  | Another workload holds most of the GPU; vLLM defaults to reserving 90%                                        | Lower `--gpu-memory-utilization` in manifests/maas/model-qwen.yaml                                                         |

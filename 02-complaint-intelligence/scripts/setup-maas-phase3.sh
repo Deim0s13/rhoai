@@ -170,4 +170,13 @@ case "${READY}" in
 esac
 echo
 
+echo "--- Permitting the MaaS API namespace to publish through the gateway ---"
+# maas-default-gateway restricts route attachment to namespaces labelled
+# maas.opendatahub.io/publish=true. maas-api-route is created by MaaS
+# enablement in redhat-ods-applications, so the label must be applied here
+# or the route silently fails to attach and every call to /v1/models
+# returns 404 (confirmed 2026-07-31).
+oc label namespace redhat-ods-applications maas.opendatahub.io/publish=true --overwrite
+echo
+
 echo "=== Phase 3 complete. Next: model registration (Phase 4) ==="

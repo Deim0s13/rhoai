@@ -29,3 +29,29 @@ spec:
     - name: https
       port: 443
       protocol: HTTPS
+      # No hostname deliberately. Wildcard DNS for *.apps points at the
+      # default ingress router, not at this gateway's own load balancer, so
+      # a hostname here routes traffic to the wrong LB (confirmed
+      # 2026-07-31: *.apps resolves to the router, the gateway has its own
+      # ELB). Clients read the address from .status.addresses instead.
+      # The wildcard cert will not match that address, so lab clients use
+      # curl -k. In production this gets a DNS record (or a Kuadrant
+      # DNSPolicy, the dns-operator is installed) and a matching hostname.
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: cert-manager-ingress-cert
+      allowedRoutes:
+        namespaces:
+          # Namespaces must be explicitly labelled to publish through the
+          # governed gateway. Which teams may expose models under
+          # governance is a control in its own right, not an open door.
+          # NOTE: this applies to the platform's own maas-api-route too;
+          # redhat-ods-applications must carry the label or /v1/models
+          # returns 404. Phase 3 applies it.
+          from: Selector
+          selector:
+            matchLabels:
+              maas.opendatahub.io/publish: "true"

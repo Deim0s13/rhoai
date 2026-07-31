@@ -2,6 +2,12 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: maas-models
+  labels:
+    # Required by the maas-default-gateway listener's allowedRoutes selector.
+    # Namespaces must be explicitly labelled to publish models through the
+    # governed gateway: which teams may expose models under governance is a
+    # control in its own right, not an open door.
+    maas.opendatahub.io/publish: "true"
 ---
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceService
@@ -13,6 +19,23 @@ spec:
     uri: hf://Qwen/Qwen3-0.6B
     name: Qwen/Qwen3-0.6B
   replicas: 1
+  # Co-tenancy on the single L4 with Granite (UC02). vLLM defaults to
+  # reserving 90% of the card and fails at init because only ~2.3 GiB is
+  # free. Deliberately NOT requesting nvidia.com/gpu: the NVIDIA runtime
+  # already exposes the device, and a resource request would leave this pod
+  # Pending forever since Granite holds the only card.
+  #   0.09 * 22.03 GiB = ~1.98 GiB. Qwen3-0.6B is ~1.2 GiB in bf16.
+  #   max-model-len 2048 keeps the KV cache inside what is left.
+  #   enforce-eager skips CUDA graph capture, which needs extra memory.
+  # Unmanaged GPU co-tenancy is a lab shortcut, not a production pattern:
+  # two vLLM processes share the card by mutual agreement on memory
+  # fractions. Production answers are MIG, time-slicing, or separate cards.
+  template:
+    containers:
+      - name: main
+        env:
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--gpu-memory-utilization 0.09 --max-model-len 2048 --enforce-eager"
   # Opt-in to MaaS: without this gateway ref the model uses the default
   # KServe gateway and no MaaS policy applies to it.
   router:
@@ -26,7 +49,7 @@ apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSModelRef
 metadata:
   name: qwen3-06b
-  # Must be co-located with the model: modelRef has kind and name only,
+  # Must be co-located with the model: modelRef takes kind and name only,
   # no namespace field.
   namespace: maas-models
 spec:

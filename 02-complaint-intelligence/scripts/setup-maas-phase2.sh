@@ -51,6 +51,24 @@ case "${SM_BEFORE}" in
 esac
 echo
 
+echo "--- Guard: gateway TLS certificate ---"
+# The listener terminates TLS. Without a resolvable certificateRef the
+# gateway accepts TCP then drops the TLS handshake, which surfaces as
+# curl exit code 000 rather than an HTTP status (confirmed 2026-07-31).
+# cert-manager-ingress-cert is provisioned by the RHDP catalog item, not
+# by RHOAI, so a different sandbox may name it differently.
+if ! oc get secret cert-manager-ingress-cert -n openshift-ingress >/dev/null 2>&1; then
+  echo "FAIL: secret cert-manager-ingress-cert not found in openshift-ingress."
+  echo "The gateway listener terminates TLS with this certificate. Check"
+  echo "what this catalog item provides:"
+  echo "  oc get secret -n openshift-ingress | grep tls"
+  echo "  oc get clusterissuer"
+  echo "Then update certificateRefs in manifests/maas/gateway.yaml."
+  exit 1
+fi
+echo "OK: gateway TLS certificate present."
+echo
+
 echo "--- Applying dedicated GatewayClass and Gateway ---"
 oc apply -f manifests/maas/gateway.yaml
 echo
