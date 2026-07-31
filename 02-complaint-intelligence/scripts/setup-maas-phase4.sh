@@ -81,6 +81,26 @@ if [ "${LLM_READY}" != "True" ] || [ "${REF_PHASE}" != "Ready" ]; then
 fi
 echo
 
+echo "--- Granting access (MaaSAuthPolicy) ---"
+# Publishing a model does not grant access to it. Without this policy the
+# model is Ready and subscribed but invisible to callers: /v1/models
+# returns {"data":[]} with HTTP 200 and no error.
+oc apply -f manifests/maas/authpolicy-demo.yaml
+sleep 10
+AUTH_PHASE=$(oc get maasauthpolicy demo-access -n models-as-a-service \
+  -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+if [ "${AUTH_PHASE}" != "Active" ]; then
+  echo "FAIL: MaaSAuthPolicy phase is '${AUTH_PHASE:-unknown}', expected Active."
+  exit 1
+fi
+if ! oc get authpolicy maas-auth-qwen3-06b -n maas-models >/dev/null 2>&1; then
+  echo "FAIL: MaaSAuthPolicy did not reconcile into a Kuadrant AuthPolicy"
+  echo "(expected maas-auth-qwen3-06b in maas-models)."
+  exit 1
+fi
+echo "OK: access granted, reconciled into maas-auth-qwen3-06b."
+echo
+
 echo "--- Applying the subscription ---"
 oc apply -f manifests/maas/subscription-demo.yaml
 sleep 10
@@ -123,4 +143,8 @@ Model discovery:
 
 -k is required: the wildcard certificate does not match the load balancer
 address, and no DNS record exists for this gateway.
-EOF
+
+echo "=== Phase 4 complete ==="
+echo
+echo "Verify end to end:  ./scripts/maas-demo-verify.sh"
+echo "Demo runbook:       docs/demos/DEMO-maas-governance.md"

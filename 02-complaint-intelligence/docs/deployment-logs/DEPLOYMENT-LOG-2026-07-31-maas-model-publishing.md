@@ -109,3 +109,66 @@ maas-api expects an issued API key rather than a raw OpenShift token.
 
 Token issuance through maas-api, an authenticated inference call returning
 a `usage` block, budget exhaustion producing 429, and key revocation.
+
+## Access is a separate grant from publication
+
+Publishing a model does not grant access to it. With MaaSModelRef Ready
+and the subscription Active, `GET /v1/models` returned HTTP 200 with an
+empty list and no error. The missing object was a **MaaSAuthPolicy**,
+which reconciles into a Kuadrant AuthPolicy (`maas-auth-<model>`) on the
+model's HTTPRoute.
+
+Three CRs, three separable decisions with different owners:
+
+| CR               | Decision                             | Plausible owner              |
+| ---------------- | ------------------------------------ | ---------------------------- |
+| MaaSModelRef     | this model is available through MaaS | platform / model owner       |
+| MaaSAuthPolicy   | these subjects may use it            | security / access management |
+| MaaSSubscription | this much, at this rate, billed here | finance / capacity           |
+
+Worth surfacing in customer conversations: access and budget are not the
+same approval, and the platform does not conflate them.
+
+## Authentication model
+
+The generated AuthPolicy defines two methods with different scopes:
+
+- **Kubernetes tokens** (`kubernetesTokenReview`, audience
+  `https://kubernetes.default.svc`) are accepted ONLY where the path
+  matches `.*/v1/models$`. Discovery only.
+- **API keys** matching `^Bearer sk-oai-.*` are the inference credential,
+  validated by maas-api at
+  `/internal/v1/api-keys/validate`.
+
+So an OpenShift token on an inference path returns 401. That is correct
+behaviour, not a misconfiguration.
+
+Authorization then applies three OPA rules: `auth-valid`,
+`require-group-membership` (against the groups in the MaaSAuthPolicy), and
+`subscription-valid` (phase must be Active or Degraded, not deleting).
+Callers belonging to several subscriptions can select one per request via
+an `x-maas-subscription` header.
+
+## API key lifecycle
+
+- Issue: `POST /maas-api/v1/api-keys`, body `{"name":"..."}`, returns 201
+  with the key, an id, and the bound subscription.
+- Revoke: `DELETE /maas-api/v1/api-keys/{id}`, returns the record with
+  `status: revoked` and `lastUsedAt`.
+- **Revocation latency**: immediate in the database, effective at the
+  gateway within 60 seconds worst case, bounded by the `apiKeyValidation`
+  cache TTL in the AuthPolicy. This is a configurable number and the
+  honest answer to "how fast can we cut someone off".
+- A revoked key returns 403, not 401: it still matches the `sk-oai-`
+  pattern so authentication engages, then validation fails.
+- Open item: the `expiration` field in the issuance body was ignored and
+  the 90-day default applied. Field name needs confirming.
+
+## Enforcement verified
+
+Budget `limit: 500, window: 1m`. Three calls at ~210 tokens each returned
+200; the fourth returned 429. After the window rolled, a new call returned 200. Token accounting matches `usage.total_tokens` exactly.
+
+Note Qwen3 emits reasoning tokens (`<think>...`), so budget burns faster
+than `max_tokens` alone suggests. Useful for demos, worth narrating
+honestly.

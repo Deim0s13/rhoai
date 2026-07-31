@@ -284,6 +284,23 @@ Consumption paths are `/{namespace}/{model}/v1/chat/completions` (also `/v1/comp
 
 `-k` is required and the address must be read from the Gateway status: wildcard DNS for `*.apps` points at the default ingress router, not at this gateway's load balancer, so the listener carries no hostname and the wildcard certificate does not match the address. A customer environment resolves this with a DNS record or a Kuadrant DNSPolicy.
 
+Then confirm the whole governance chain end to end:
+
+```bash
+./scripts/maas-demo-verify.sh
+```
+
+Seven checks: unauthenticated denied (403), model discovery, OpenShift
+token rejected on inference (401, k8s tokens are scoped to /v1/models by
+policy), API key issuance, authenticated inference with token accounting,
+budget exhaustion (429), and revocation (403). Takes about two minutes,
+most of it waiting out the 60-second key-validation cache.
+
+Three CRs make up the chain and all three are required: **MaaSModelRef**
+publishes, **MaaSAuthPolicy** grants access, **MaaSSubscription** meters
+and limits. Without the auth policy the model is Ready and subscribed but
+`/v1/models` returns an empty list with no error.
+
 **Do not run any phase without the previous one confirmed clean.** See `DEPLOYMENT-LOG-2026-07-28-servicemesh-incident.md`, `DEPLOYMENT-LOG-2026-07-28-servicemesh-recovery.md` and `DEPLOYMENT-LOG-2026-07-29-kuadrant-namespace-isolation.md` for why this matters.
 
 ## Do not
@@ -298,7 +315,7 @@ Consumption paths are `/{namespace}/{model}/v1/chat/completions` (also `/v1/comp
 - **Do not add a Route to work around the broken Gateway URL.** A controller-generated NetworkPolicy blocks it by design; port-forward is the only working path.
 - **Do not re-run `ansible-playbook ansible/site.yml` after the vector store has been created and populated.** `sync_llama_stack` restarts the Llama Stack pod every run. If that restart lands before the vector store's registration has durably persisted, Milvus's search index loses track of the store, file listings and uploads still work, search silently returns zero results (`VectorStoreNotFoundError` in the pod logs, not visible from the notebook side). Safe on a fresh rebuild: the playbook completes fully before the notebook creates the store. Only a risk if re-running the playbook after the notebook has already populated data. If something genuinely needs re-seeding at that point, delete and recreate the vector store afterward rather than trusting it survived the restart.
 - **Do not blanket-approve pending install plans** (`oc get installplan -o name | xargs -I{} oc patch {} ... approved:true` or similar). This approves _every_ pending plan across every operator, not just the one you're waiting on. Confirmed live (2026-07-28): approving a single pending LWS install plan this way also silently approved an unrelated, unplanned Service Mesh upgrade (v3.1.0 → v3.4.0, three minor versions), which broke Gateway API reconciliation cluster-wide (RHOAI 3.4.2's own gateway controller pins the Istio CR to a version the new operator refuses to install as end-of-life). Recoverable by hand, but only via RUNBOOK-servicemesh-recovery.md; the original attempt failed on ordering and unknown blocker depth. Always target a specific install plan by name, found first via a scoped query:
-- - **Do not request `nvidia.com/gpu` for the MaaS demonstration model.** The NVIDIA runtime exposes the device regardless of resource requests, so the pod sees `cuda:0` without asking. Granite holds the only card, so a resource request leaves the pod Pending forever. Constrain vLLM's memory fraction instead (`--gpu-memory-utilization`), and expect a CrashLoopBackOff with `Free memory on device cuda:0 ... less than desired GPU memory utilization` if the fraction is too high. Confirmed 2026-07-31.
+- **Do not request `nvidia.com/gpu` for the MaaS demonstration model.** The NVIDIA runtime exposes the device regardless of resource requests, so the pod sees `cuda:0` without asking. Granite holds the only card, so a resource request leaves the pod Pending forever. Constrain vLLM's memory fraction instead (`--gpu-memory-utilization`), and expect a CrashLoopBackOff with `Free memory on device cuda:0 ... less than desired GPU memory utilization` if the fraction is too high. Confirmed 2026-07-31.
 - **Do not add a hostname to the maas-default-gateway listener.** Wildcard DNS for `*.apps` resolves to the default ingress router, not to this gateway's load balancer, so a hostname routes traffic to the wrong LB. Read the address from `.status.addresses[0].value`. Confirmed 2026-07-31.
 - **Do not remove the `allowedRoutes` selector from the gateway listener.** It is the control on which namespaces may publish models under governance. Both `maas-models` and `redhat-ods-applications` must carry `maas.opendatahub.io/publish=true`; the second is applied by phase 3 and without it the platform's own `/v1/models` route silently fails to attach.
 
@@ -319,6 +336,7 @@ Consumption paths are `/{namespace}/{model}/v1/chat/completions` (also `/v1/comp
 - **Do not touch the servicemesh subscription at all: no pinning, no channel edits, no deletion.** It is installed and managed by the cluster ingress operator as the platform's Gateway API implementation (confirmed 2026-07-29 via managedFields). Deletion is reverted within seconds; channel edits are overwritten. The platform's own spec (stable, Manual, startingCSV v3.1.0) is the correct state and is self-healing. The only interaction this build ever has with it is read-only verification.
 - **Do not apply manifest directories wholesale** (`oc apply -f manifests/<dir>/`). Scripts apply named files. A directory apply is what swept the first incident's corrective manifest onto a fresh environment and detonated the second incident (ADR-0010).
 - **Do not commit one-shot corrective manifests into applyable paths** (ADR-0010). Remediation is a runbook step, not a manifest.
+- **Do not expect publishing a model to grant access to it.** MaaSModelRef publishes, MaaSAuthPolicy grants subjects access, MaaSSubscription meters them. Missing the auth policy produces an empty `/v1/models` list with HTTP 200 and no error message. Confirmed 2026-07-31.
 
 ## If something fails
 

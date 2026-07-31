@@ -21,8 +21,9 @@ spec:
   # Chargeback primitives are native to the CRD, not assembled from
   # metrics afterwards. This is the Economics pillar in configuration.
   tokenMetadata:
-    costCenter: "ANZ-DEMO-CC-001"
-    organizationId: "anz-nz-complaints"
+    costCenter: "ACME-CC-4471"
+    organizationId: "acme-bank-retail"
     labels:
       useCase: "UC02-complaint-intelligence"
+      businessUnit: "customer-remediation"
       environment: "presales-lab"

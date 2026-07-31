@@ -1,0 +1,22 @@
+# Access grant. Distinct from the subscription: this says WHO may reach the
+# model, the subscription says HOW MUCH they may consume. Without this,
+# GET /v1/models returns an empty list even though the model is published
+# and Ready, and there is no error to explain why (confirmed 2026-07-31).
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSAuthPolicy
+metadata:
+  name: demo-access
+  namespace: models-as-a-service
+spec:
+  subjects:
+    groups:
+      - name: system:authenticated
+  modelRefs:
+    - name: qwen3-06b
+      namespace: maas-models
+  meteringMetadata:
+    costCenter: "ACME-CC-4471"
+    organizationId: "acme-bank-retail"
+    labels:
+      useCase: "UC02-complaint-intelligence"
+      businessUnit: "customer-remediation"
