@@ -18,10 +18,13 @@ check() { # name expected actual
 echo "Gateway: ${GW}"
 echo
 
-# 1. Deny by default
+# 1. Deny by default. 401 not 403: once a MaaSAuthPolicy governs the route,
+# no credential is "unauthenticated" (401) while an invalid or revoked one
+# is "unauthorized" (403). Before any auth policy exists the gateway's
+# deny-default returns 403 for both.
 CODE=$(curl -sk -o /dev/null -w "%{http_code}" -X POST "${MODEL_PATH}" \
   -H "Content-Type: application/json" -d "${PAYLOAD}")
-check "unauthenticated is denied" "403" "${CODE}"
+check "unauthenticated is denied" "401" "${CODE}"
 
 # 2. Discovery with an OpenShift token
 MODELS=$(curl -sk "${GW}/v1/models" -H "Authorization: Bearer ${TOKEN}")

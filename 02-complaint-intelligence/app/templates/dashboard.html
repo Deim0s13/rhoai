@@ -2,7 +2,6 @@
 content %}
 <h1>Complaint themes</h1>
 <p class="subtitle">{{ total_complaints }} complaints, {{ total_classified }} classified.</p>
-
 <div class="stat-row">
   <div class="stat">
     <div class="value">{{ total_classified }}</div>
@@ -17,7 +16,6 @@ content %}
     <div class="label">PII detected and redacted</div>
   </div>
 </div>
-
 <h2>By theme</h2>
 {% if theme_rows %}
 <div class="ledger">
@@ -27,10 +25,39 @@ content %}
       <div class="id">{{ row.id }}</div>
       <div class="preview">{{ row.name }}</div>
     </div>
+    {% if row.trend is not none %}
+    <span class="badge {{ 'badge-review' if row.trend > 0 else 'badge-verified' }}">
+      {{ '+' if row.trend > 0 }}{{ row.trend }}%
+    </span>
+    {% endif %}
     <span class="badge badge-neutral">{{ row.count }} complaint{{ 's' if row.count != 1 }}</span>
   </a>
   {% endfor %}
 </div>
-{% else %}
+{% if recent_start %}
+<p class="subtitle" style="margin-top: 12px">
+  Trend compares the 30 days to {{ latest.strftime('%d %b %Y') }} against the 30 days before that.
+</p>
+{% endif %} {% else %}
 <div class="empty-state">No complaints classified yet. Head to Classify to run the first one.</div>
+{% endif %} {% if rc_rows %}
+<h2 style="margin-top: 40px">By root cause</h2>
+<p class="subtitle">
+  Where the same driver appears across different themes, the issue is systemic rather than local to
+  one journey.
+</p>
+<div class="ledger">
+  {% for row in rc_rows %}
+  <a href="{{ url_for('root_cause_detail', root_cause_id=row.id) }}" class="ledger-row">
+    <div class="main">
+      <div class="id">{{ row.id }}</div>
+      <div class="preview">{{ row.name }}</div>
+    </div>
+    {% if row.review %}
+    <span class="badge badge-review">{{ row.review }} pending review</span>
+    {% endif %}
+    <span class="badge badge-neutral">{{ row.count }} complaint{{ 's' if row.count != 1 }}</span>
+  </a>
+  {% endfor %}
+</div>
 {% endif %} {% endblock %}

@@ -18,6 +18,9 @@ Design decisions (traceable to source, not invented here):
     not the classifier) and fixtures.md ground-truth section.
   - Mock PII follows fixtures.md conventions exactly, so redaction is
     deterministic and repeatable.
+  - received_date is ISO (structured field); dates inside body text are
+    human-readable prose. Both fall inside the same window, so a complaint
+    received in February never references an event in June.
 
 The generator is mechanical. All judgement lives in scenarios.yaml.
 Deterministic: a fixed seed means the same dataset every run, which is what
@@ -27,6 +30,7 @@ makes the guardrail demo repeatable.
 import json
 import random
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 import yaml
@@ -46,6 +50,40 @@ N_AMBIGUOUS = 15
 N_PII_CARRIERS = 25  # spread across all categories
 N_INJECTION = 2
 N_REFERENCE = 60  # ground-truth subset
+
+# --- Dataset time window --------------------------------------------------
+# Fixed and six months wide, so a 30-day trend comparison has a prior period
+# to compare against. Deterministic: a regeneration produces the same shape.
+DATA_START = date(2026, 1, 1)
+DATA_END = date(2026, 6, 30)
+_SPAN_DAYS = (DATA_END - DATA_START).days
+
+# Themes deliberately shaped to rise across the window, so the dashboard shows
+# a systemic issue emerging rather than a flat snapshot. Higher weight skews
+# harder towards the end of the window; everything else is uniform. THM-05
+# (digital) and THM-07 (hardship) are the two dominant themes in
+# scenarios.yaml, chosen so the trend is visible without being absurd.
+RISING_THEMES = {"THM-05": 2.5, "THM-07": 1.6}
+
+
+def random_date(theme_id=None):
+    """ISO date for the received_date field.
+
+    Uniform for most themes; skewed late for RISING_THEMES so their volume
+    visibly grows across the window.
+    """
+    weight = RISING_THEMES.get(theme_id)
+    position = random.random() ** (1.0 / weight) if weight else random.random()
+    return (DATA_START + timedelta(days=int(position * _SPAN_DAYS))).isoformat()
+
+
+def prose_date():
+    """Human-readable date for use INSIDE complaint body text. Distinct from
+    received_date, which is a structured field and stays ISO: a customer
+    writing about their own experience does not say '2026-03-14'."""
+    d = DATA_START + timedelta(days=random.randint(0, _SPAN_DAYS))
+    return d.strftime("%d %B %Y").lstrip("0")
+
 
 # --- Slot pools -----------------------------------------------------------
 CHANNELS = ["web_form", "email", "phone_note", "branch_note", "app_feedback"]
@@ -162,7 +200,7 @@ def mock_email(name):
 def fill_slots(body):
     """Replace {slot} tokens with pool values. Idempotent for absent slots."""
     subs = {
-        "date": random_date(),
+        "date": prose_date(),
         "count": str(random.choice(["three", "four", "five", "six", "seven"])),
         "weeks": str(random.randint(2, 9)),
         "days": str(random.randint(3, 15)),
@@ -182,13 +220,6 @@ def fill_slots(body):
     for k, v in subs.items():
         out = out.replace("{" + k + "}", v)
     return out
-
-
-def random_date():
-    # Recent-ish, plausible; format varies a little by nothing (kept simple)
-    day = random.randint(1, 28)
-    month = random.choice(["January", "February", "March", "April", "May", "June"])
-    return f"{day} {month} 2026"
 
 
 # --- PII planting ---------------------------------------------------------
@@ -303,7 +334,7 @@ def build():
             {
                 "complaint_id": next_id(),
                 "channel": random.choice(CHANNELS),
-                "received_date": random_date(),
+                "received_date": random_date(s["theme"]),
                 "body": fill_slots(s["body"]),
                 "_truth_theme": s["theme"],
                 "_truth_root_cause": s["root_cause"],
@@ -324,7 +355,7 @@ def build():
                 {
                     "complaint_id": next_id(),
                     "channel": ch,
-                    "received_date": random_date(),
+                    "received_date": random_date(s["theme"]),
                     "body": variant,
                     "_truth_theme": s["theme"],
                     "_truth_root_cause": s["root_cause"],
@@ -346,7 +377,7 @@ def build():
             {
                 "complaint_id": next_id(),
                 "channel": random.choice(CHANNELS),
-                "received_date": random_date(),
+                "received_date": random_date(primary),
                 "body": fill_slots(body_tpl),
                 "_truth_theme": primary,
                 "_truth_candidate_theme": candidate,
@@ -364,7 +395,7 @@ def build():
             {
                 "complaint_id": next_id(),
                 "channel": random.choice(CHANNELS),
-                "received_date": random_date(),
+                "received_date": random_date("THM-05"),
                 "body": body,
                 "_truth_theme": "THM-05",
                 "_truth_root_cause": "RC-02",
@@ -460,6 +491,11 @@ def write_manifest(records, ref):
     lines.append(
         f"Generated deterministically (seed {SEED}). {len(records)} records total.\n"
     )
+    lines.append(
+        f"Date window: {DATA_START.isoformat()} to {DATA_END.isoformat()}. "
+        f"Themes shaped to rise across the window: "
+        f"{', '.join(sorted(RISING_THEMES))}.\n"
+    )
     lines.append("## By category\n")
     for k, v in sorted(cat.items()):
         lines.append(f"- {k}: {v}")
@@ -468,6 +504,16 @@ def write_manifest(records, ref):
     for k in sorted(theme):
         bar = "#" * theme[k]
         lines.append(f"- {k}: {theme[k]:>3}  {bar}")
+    lines.append(f"\n## Theme volume, first half vs second half of window\n")
+    midpoint = DATA_START + timedelta(days=_SPAN_DAYS // 2)
+    halves = Counter()
+    for r in records:
+        d = date.fromisoformat(r["received_date"])
+        halves[(r["_truth_theme"], "H2" if d >= midpoint else "H1")] += 1
+    for k in sorted(theme):
+        h1, h2 = halves[(k, "H1")], halves[(k, "H2")]
+        marker = "  <- shaped to rise" if k in RISING_THEMES else ""
+        lines.append(f"- {k}: H1 {h1:>3}  H2 {h2:>3}{marker}")
     lines.append(f"\n## Reference set\n")
     lines.append(f"- {len(ref)} records, labelled theme + root_cause only")
     lines.append(
@@ -486,6 +532,10 @@ def write_manifest(records, ref):
     lines.append(
         "- ambiguous records carry candidate_theme_id: the second "
         "defensible theme, for the review-queue view."
+    )
+    lines.append(
+        "- received_date is ISO; dates inside body text are prose. Both "
+        "fall inside the same window."
     )
     (OUT_DIR / "MANIFEST.md").write_text("\n".join(lines) + "\n")
 

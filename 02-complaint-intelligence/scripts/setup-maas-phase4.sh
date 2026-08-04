@@ -43,15 +43,17 @@ oc apply -f manifests/maas/model-qwen.yaml
 echo
 
 echo "--- Waiting for the model to serve (up to 10 minutes) ---"
-# First run pulls weights from Hugging Face, so this is slow. vLLM also
-# fails fast and CrashLoopBackOffs if the GPU memory fraction is wrong,
-# so a stuck rollout here is usually a memory problem, not a slow pull.
-if ! oc rollout status deployment -n maas-models \
-     -l serving.kserve.io/inferenceservice=qwen3-06b --timeout=600s; then
-  echo "FAIL: model workload did not become available."
-  echo "Check:  oc get pods -n maas-models"
-  echo "        oc logs -n maas-models -l serving.kserve.io/inferenceservice=qwen3-06b --tail=50"
-  echo "If the log shows 'Free memory on device cuda:0 ... less than desired"
+# Gate on the LLMInferenceService's own Ready condition, not on a
+# deployment rollout: the controller-generated deployment name and labels
+# are not a contract, and a selector that matches nothing fails instantly
+# rather than waiting (confirmed 2026-08-03). First run pulls weights from
+# Hugging Face, so allow several minutes.
+if ! oc wait --for=condition=Ready llmisvc/qwen3-06b -n maas-models --timeout=600s; then
+  echo "FAIL: model did not become Ready."
+  echo "Check:  oc get llmisvc qwen3-06b -n maas-models -o jsonpath='{.status.conditions}' | python3 -m json.tool"
+  echo "        oc get pods -n maas-models"
+  echo "        oc logs -n maas-models -l app.kubernetes.io/name=qwen3-06b --tail=50"
+  echo "If a pod log shows 'Free memory on device cuda:0 ... less than desired"
   echo "GPU memory utilization', another workload holds the card. Lower"
   echo "--gpu-memory-utilization in manifests/maas/model-qwen.yaml."
   exit 1

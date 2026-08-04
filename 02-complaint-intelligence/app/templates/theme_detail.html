@@ -3,8 +3,33 @@
 <h1>{{ theme.name }}</h1>
 <p class="subtitle">{{ theme.definition }}</p>
 
-<h2>{{ rows|length }} complaint{{ 's' if rows|length != 1 }}</h2>
-{% if rows %}
+{% if rc_rows %}
+<h2>By root cause</h2>
+<div class="ledger">
+  {% for row in rc_rows %}
+  <a href="{{ url_for('theme_detail', theme_id=theme.id, root_cause=row.id) }}" class="ledger-row">
+    <div class="main">
+      <div class="id">{{ row.id }}</div>
+      <div class="preview">{{ row.name }}</div>
+    </div>
+    {% if row.review %}
+    <span class="badge badge-review">{{ row.review }} pending review</span>
+    {% endif %}
+    <span class="badge">{{ row.count }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<h2 style="margin-top: 40px">
+  {{ rows|length }} complaint{{ 's' if rows|length != 1 }} {% if filter_rc %}· {{ filter_rc_name
+  }}{% endif %}
+</h2>
+{% if filter_rc %}
+<p class="subtitle">
+  <a href="{{ url_for('theme_detail', theme_id=theme.id) }}">← Clear filter</a>
+</p>
+{% endif %} {% if rows %}
 <div class="ledger">
   {% for row in rows %}
   <a href="{{ url_for('evidence_detail', complaint_id=row.complaint_id) }}" class="ledger-row">

@@ -172,17 +172,23 @@ Not part of the standard rebuild. Only relevant if evaluating the Economics pill
 
 **Run MaaS phases only after step 7's smoke test passes.** The core build has zero Service Mesh dependency (confirmed 2026-07-28: maas-default-gateway runs on the OpenShift ingress gateway controller, and the demo path uses Routes and service DNS). Keeping the two failure domains separated means a servicemesh guard trip cannot be confused with a broken core build.
 
-    chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh scripts/setup-maas-phase3.sh
+```bash
+chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh scripts/setup-maas-phase3.sh scripts/setup-maas-phase4.sh scripts/setup-maas-phase5.sh
+```
 
 ### Phase 1: prerequisites
 
-    ./scripts/setup-maas-phase1.sh
+```bash
+./scripts/setup-maas-phase1.sh
+```
 
 Review the "pending install plans" listing partway through the output; it should show only the LWS plan being acted on.
 
 ### Phase 2: Kuadrant stack (isolated namespace)
 
-    ./scripts/setup-maas-phase2.sh
+```bash
+./scripts/setup-maas-phase2.sh
+```
 
 Installs the RHCL/Kuadrant stack into its own namespace (`kuadrant-system`, created by the script with an OperatorGroup), plus the dedicated `maas-gateway-class` and `maas-default-gateway`. Namespace isolation is the prevention control: OLM resolution is per-namespace, so plans generated in kuadrant-system cannot bundle the servicemesh upgrade that is permanently pending in openshift-operators (the mechanism behind both 2026-07-28 incidents; see DEPLOYMENT-LOG-2026-07-29). The script inspects the install plan's contents before approving (detection), verifies Service Mesh is unchanged afterwards, and checks for duplicate controllers. If any guard trips, stop and open RUNBOOK-servicemesh-recovery.md.
 

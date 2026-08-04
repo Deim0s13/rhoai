@@ -1,0 +1,40 @@
+{% extends "base.html" %} {% block title %}{{ rc.name }} — Complaint Intelligence{% endblock %} {%
+block content %}
+<h1>{{ rc.name }}</h1>
+<p class="subtitle">{{ rc.definition }}</p>
+
+<h2>Across {{ theme_rows|length }} theme{{ 's' if theme_rows|length != 1 }}</h2>
+<p class="subtitle">
+  One driver appearing in several themes is the signal that the fix belongs upstream, not in any
+  single journey.
+</p>
+<div class="ledger">
+  {% for row in theme_rows %}
+  <a href="{{ url_for('theme_detail', theme_id=row.id, root_cause=rc.id) }}" class="ledger-row">
+    <div class="main">
+      <div class="id">{{ row.id }}</div>
+      <div class="preview">{{ row.name }}</div>
+    </div>
+    <span class="badge">{{ row.count }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<h2 style="margin-top: 40px">{{ rows|length }} complaint{{ 's' if rows|length != 1 }}</h2>
+<div class="ledger">
+  {% for row in rows %}
+  <a href="{{ url_for('evidence_detail', complaint_id=row.complaint_id) }}" class="ledger-row">
+    <div class="main">
+      <div class="id">{{ row.complaint_id }}</div>
+      <div class="preview">{{ row.theme }}</div>
+    </div>
+    {% if row.routed_to_review %}
+    <span class="badge badge-review">Review</span>
+    {% endif %}
+    <span class="badge badge-verified">{{ "%.2f"|format(row.confidence) }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<p style="margin-top: 24px"><a href="{{ url_for('dashboard') }}">← Back to themes</a></p>
+{% endblock %}

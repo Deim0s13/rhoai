@@ -13,8 +13,10 @@ import random
 import sys
 
 sys.path.insert(0, os.environ.get("PIPELINE_PATH", "/app/pipeline"))
+from datetime import datetime, timedelta
+
 from classify import Pipeline
-from flask import Flask, abort, redirect, render_template, url_for
+from flask import Flask, abort, redirect, render_template, request, url_for
 
 app = Flask(__name__)
 
@@ -66,6 +68,43 @@ def split_on_citation(body: str, citation: dict):
     return body[:start], body[start:end], body[end:]
 
 
+def _parse_date(value):
+    """Complaint dates are ISO after the 2026-08 regeneration. The older
+    '23 June 2026' form is still accepted so a stale bucket degrades
+    gracefully instead of breaking the dashboard."""
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%d %B %Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _trend_windows(cbid):
+    """Anchor the comparison to the latest complaint in the dataset, not to
+    wall clock. The sample is fixed in time, so a real-time window would
+    show zero complaints and every theme would read as collapsing."""
+    dates = [
+        d for d in (_parse_date(c.get("received_date")) for c in cbid.values()) if d
+    ]
+    if not dates:
+        return None, None, None
+    latest = max(dates)
+    recent_start = latest - timedelta(days=29)
+    return recent_start - timedelta(days=30), recent_start, latest
+
+
+def _trend_pct(recent, prior):
+    """None when there is no prior volume: a jump from zero is noise, not
+    signal, and showing '+100%' against a base of nothing invites a
+    question you cannot answer well."""
+    if not prior:
+        return None
+    return round((recent - prior) / prior * 100)
+
+
 # ---------------------------------------------------------------------
 # View 2: theme dashboard
 # ---------------------------------------------------------------------
@@ -73,13 +112,157 @@ def split_on_citation(body: str, citation: dict):
 
 @app.route("/")
 def dashboard():
-    theme_counts = {}
-    for rec in evidence_by_id.values():
-        theme_id = rec.get("theme_id")
-        if theme_id:
-            theme_counts[theme_id] = theme_counts.get(theme_id, 0) + 1
-
     themes_by_id = {t["id"]: t for t in pipeline.taxonomy["themes"]}
+    root_causes_by_id = {r["id"]: r for r in pipeline.taxonomy["root_causes"]}
+    cbid = complaints_by_id()
+    prior_start, recent_start, latest = _trend_windows(cbid)
+
+    theme_counts, theme_recent, theme_prior = {}, {}, {}
+    rc_counts, rc_review = {}, {}
+
+    for rec in evidence_by_id.values():
+        tid = rec.get("theme_id")
+        if tid:
+            theme_counts[tid] = theme_counts.get(tid, 0) + 1
+            d = _parse_date(cbid.get(rec["complaint_id"], {}).get("received_date"))
+            if d and recent_start:
+                if d >= recent_start:
+                    theme_recent[tid] = theme_recent.get(tid, 0) + 1
+                elif d >= prior_start:
+                    theme_prior[tid] = theme_prior.get(tid, 0) + 1
+        rcid = rec.get("root_cause_id")
+        if rcid:
+            rc_counts[rcid] = rc_counts.get(rcid, 0) + 1
+            if rec.get("routed_to_review"):
+                rc_review[rcid] = rc_review.get(rcid, 0) + 1
+
+    theme_rows = sorted(
+        (
+            {
+                "id": tid,
+                "name": themes_by_id.get(tid, {}).get("name", tid),
+                "count": count,
+                "trend": _trend_pct(theme_recent.get(tid, 0), theme_prior.get(tid, 0)),
+            }
+            for tid, count in theme_counts.items()
+        ),
+        key=lambda r: r["count"],
+        reverse=True,
+    )
+
+    rc_rows = sorted(
+        (
+            {
+                "id": rcid,
+                "name": root_causes_by_id.get(rcid, {}).get("name", rcid),
+                "count": count,
+                "review": rc_review.get(rcid, 0),
+            }
+            for rcid, count in rc_counts.items()
+        ),
+        key=lambda r: r["count"],
+        reverse=True,
+    )
+
+    return render_template(
+        "dashboard.html",
+        total_complaints=len(all_complaints),
+        total_classified=len(evidence_by_id),
+        theme_rows=theme_rows,
+        rc_rows=rc_rows,
+        routed_count=sum(
+            1 for r in evidence_by_id.values() if r.get("routed_to_review")
+        ),
+        pii_count=sum(1 for r in evidence_by_id.values() if r.get("pii_detected")),
+        recent_start=recent_start,
+        latest=latest,
+    )
+
+
+@app.route("/theme/<theme_id>")
+def theme_detail(theme_id):
+    themes_by_id = {t["id"]: t for t in pipeline.taxonomy["themes"]}
+    theme = themes_by_id.get(theme_id)
+    if not theme:
+        abort(404)
+    root_causes_by_id = {r["id"]: r for r in pipeline.taxonomy["root_causes"]}
+    cbid = complaints_by_id()
+
+    # Optional drill-through: /theme/THM-10?root_cause=RC-03
+    filter_rc = request.args.get("root_cause")
+
+    rc_counts, rc_review, rows = {}, {}, []
+    for rec in evidence_by_id.values():
+        if rec.get("theme_id") != theme_id:
+            continue
+        rcid = rec.get("root_cause_id")
+        if rcid:
+            rc_counts[rcid] = rc_counts.get(rcid, 0) + 1
+            if rec.get("routed_to_review"):
+                rc_review[rcid] = rc_review.get(rcid, 0) + 1
+        if filter_rc and rcid != filter_rc:
+            continue
+        complaint = cbid.get(rec["complaint_id"], {})
+        rows.append(
+            {
+                "complaint_id": rec["complaint_id"],
+                "root_cause": root_causes_by_id.get(rcid, {}).get("name", rcid),
+                "confidence": rec.get("confidence"),
+                "routed_to_review": rec.get("routed_to_review"),
+                "channel": complaint.get("channel", ""),
+            }
+        )
+
+    rc_rows = sorted(
+        (
+            {
+                "id": rcid,
+                "name": root_causes_by_id.get(rcid, {}).get("name", rcid),
+                "count": count,
+                "review": rc_review.get(rcid, 0),
+            }
+            for rcid, count in rc_counts.items()
+        ),
+        key=lambda r: r["count"],
+        reverse=True,
+    )
+    rows.sort(key=lambda r: r["confidence"] or 0)
+
+    return render_template(
+        "theme_detail.html",
+        theme=theme,
+        rows=rows,
+        rc_rows=rc_rows,
+        filter_rc=filter_rc,
+        filter_rc_name=root_causes_by_id.get(filter_rc, {}).get("name", filter_rc),
+    )
+
+
+@app.route("/root-cause/<root_cause_id>")
+def root_cause_detail(root_cause_id):
+    root_causes_by_id = {r["id"]: r for r in pipeline.taxonomy["root_causes"]}
+    rc = root_causes_by_id.get(root_cause_id)
+    if not rc:
+        abort(404)
+    themes_by_id = {t["id"]: t for t in pipeline.taxonomy["themes"]}
+
+    theme_counts, rows = {}, []
+    for rec in evidence_by_id.values():
+        if rec.get("root_cause_id") != root_cause_id:
+            continue
+        tid = rec.get("theme_id")
+        if tid:
+            theme_counts[tid] = theme_counts.get(tid, 0) + 1
+        rows.append(
+            {
+                "complaint_id": rec["complaint_id"],
+                "theme_id": tid,
+                "theme": themes_by_id.get(tid, {}).get("name", tid),
+                "confidence": rec.get("confidence"),
+                "routed_to_review": rec.get("routed_to_review"),
+            }
+        )
+
     theme_rows = sorted(
         (
             {
@@ -92,49 +275,11 @@ def dashboard():
         key=lambda r: r["count"],
         reverse=True,
     )
-
-    routed_count = sum(1 for r in evidence_by_id.values() if r.get("routed_to_review"))
-    pii_count = sum(1 for r in evidence_by_id.values() if r.get("pii_detected"))
-
-    return render_template(
-        "dashboard.html",
-        total_complaints=len(all_complaints),
-        total_classified=len(evidence_by_id),
-        theme_rows=theme_rows,
-        routed_count=routed_count,
-        pii_count=pii_count,
-    )
-
-
-@app.route("/theme/<theme_id>")
-def theme_detail(theme_id):
-    themes_by_id = {t["id"]: t for t in pipeline.taxonomy["themes"]}
-    theme = themes_by_id.get(theme_id)
-    if not theme:
-        abort(404)
-
-    root_causes_by_id = {r["id"]: r for r in pipeline.taxonomy["root_causes"]}
-    cbid = complaints_by_id()
-
-    rows = []
-    for rec in evidence_by_id.values():
-        if rec.get("theme_id") != theme_id:
-            continue
-        complaint = cbid.get(rec["complaint_id"], {})
-        rows.append(
-            {
-                "complaint_id": rec["complaint_id"],
-                "root_cause": root_causes_by_id.get(rec.get("root_cause_id"), {}).get(
-                    "name", rec.get("root_cause_id")
-                ),
-                "confidence": rec.get("confidence"),
-                "routed_to_review": rec.get("routed_to_review"),
-                "channel": complaint.get("channel", ""),
-            }
-        )
     rows.sort(key=lambda r: r["confidence"] or 0)
 
-    return render_template("theme_detail.html", theme=theme, rows=rows)
+    return render_template(
+        "root_cause_detail.html", rc=rc, rows=rows, theme_rows=theme_rows
+    )
 
 
 # ---------------------------------------------------------------------
