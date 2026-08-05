@@ -14,6 +14,20 @@
 #   - exclude .cache/*: the hf download tree carries lock/metadata files that
 #     have no business in the model bucket
 #   - try http, fall back to https: RHDP routers sometimes force edge TLS
+#
+# UC02 session finding (2026-08-05): every completeness check in this role
+# tested PRESENCE, not COMPLETENESS, and a partial state was therefore
+# permanent rather than transient. An interrupted run left
+# model.safetensors.index.json in MinIO with no weight shards. The seeded
+# check saw non-empty `mc ls` output and skipped download, verify and
+# mirror; the upload check counted filenames containing "safetensors" and
+# matched the index file alone. Every subsequent run repeated the same
+# conclusion, and the predictor CrashLoopBackOffed in load_weights against
+# 4.5MiB of config. All three checks now count actual weight SHARDS and
+# assert against the expected total, which the shard filenames encode
+# themselves (model-00001-of-00004.safetensors), so this stays correct if
+# the model is swapped. A total-size floor catches a truncated shard, which
+# would pass a count check but still fail to load.
 
 - name: Set MinIO alias (http)
   ansible.builtin.command: >
@@ -45,40 +59,129 @@
   ansible.builtin.command: mc mb --ignore-existing uc02/{{ model_bucket }}
   changed_when: false
 
-- name: Check whether model is already seeded
-  ansible.builtin.command: mc ls uc02/{{ model_bucket }}/{{ model_prefix }}
-  register: model_check
-  failed_when: false
+# --- Completeness, not presence ---------------------------------------
+# Counts real weight shards in MinIO and reads the expected total out of
+# the first shard's own filename. Recursive: the shards sit under the
+# prefix, and a non-recursive ls misses them entirely.
+- name: Inspect the model already present in MinIO
+  ansible.builtin.shell: |
+    set -o pipefail
+    shards=$(mc ls --recursive uc02/{{ model_bucket }}/{{ model_prefix }}/ 2>/dev/null \
+      | grep -oE 'model-[0-9]+-of-[0-9]+\.safetensors' | sort -u)
+    count=$(echo "$shards" | grep -c . || true)
+    expected=$(echo "$shards" | head -1 | grep -oE 'of-[0-9]+' | grep -oE '[0-9]+' | sed 's/^0*//')
+    bytes=$(mc du --json uc02/{{ model_bucket }}/{{ model_prefix }}/ 2>/dev/null \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("size",0))' 2>/dev/null || echo 0)
+    echo "${count:-0} ${expected:-0} ${bytes:-0}"
+  args:
+    executable: /bin/bash
+  register: minio_state
   changed_when: false
+  failed_when: false
 
-- name: Determine seeding state from stdout content, not return code
+- name: Determine seeding state from shard completeness, not from any output
   ansible.builtin.set_fact:
-    model_already_seeded: "{{ model_check.stdout | trim | length > 0 }}"
+    minio_shards: "{{ minio_state.stdout.split()[0] | int }}"
+    minio_expected: "{{ minio_state.stdout.split()[1] | int }}"
+    minio_bytes: "{{ minio_state.stdout.split()[2] | int }}"
 
-- name: Check whether model is already downloaded locally
-  ansible.builtin.find:
-    paths: "{{ model_local_dir }}"
-    patterns: "*.safetensors"
-  register: local_files
+- name: Determine seeding state
+  ansible.builtin.set_fact:
+    model_already_seeded: >-
+      {{ minio_expected > 0
+         and minio_shards == minio_expected
+         and minio_bytes >= model_min_bytes }}
+
+- name: Report what was found in MinIO
+  ansible.builtin.debug:
+    msg: >-
+      MinIO: {{ minio_shards }}/{{ minio_expected | default('?') }} weight shards,
+      {{ (minio_bytes / 1073741824) | round(1) }}GiB.
+      {{ 'Complete, skipping download.' if model_already_seeded
+         else 'Incomplete, will download and mirror.' }}
+
+# A partial upload is worse than none: the seeded check above will now
+# catch it, but mc mirror --overwrite against a half-populated prefix has
+# no way to know a given shard is truncated. Clear it and start clean.
+- name: Clear a partial model from MinIO before re-mirroring
+  ansible.builtin.command: >
+    mc rm --recursive --force uc02/{{ model_bucket }}/{{ model_prefix }}/
+  when:
+    - not model_already_seeded
+    - minio_shards | int > 0 or minio_bytes | int > 0
+  changed_when: true
+
+# --- Local cache: same rule ------------------------------------------
+- name: Inspect the model already downloaded locally
+  ansible.builtin.shell: |
+    set -o pipefail
+    shards=$(ls -1 {{ model_local_dir }} 2>/dev/null \
+      | grep -oE 'model-[0-9]+-of-[0-9]+\.safetensors' | sort -u)
+    count=$(echo "$shards" | grep -c . || true)
+    expected=$(echo "$shards" | head -1 | grep -oE 'of-[0-9]+' | grep -oE '[0-9]+' | sed 's/^0*//')
+    bytes=$(du -sb {{ model_local_dir }} 2>/dev/null | cut -f1 || echo 0)
+    echo "${count:-0} ${expected:-0} ${bytes:-0}"
+  args:
+    executable: /bin/bash
+  register: local_state
+  changed_when: false
+  failed_when: false
+
+- name: Determine local download state
+  ansible.builtin.set_fact:
+    local_shards: "{{ local_state.stdout.split()[0] | int }}"
+    local_expected: "{{ local_state.stdout.split()[1] | int }}"
+    local_bytes: "{{ local_state.stdout.split()[2] | int }}"
+
+- name: Determine whether a complete local copy exists
+  ansible.builtin.set_fact:
+    model_local_complete: >-
+      {{ local_expected > 0
+         and local_shards == local_expected
+         and local_bytes >= model_min_bytes }}
 
 - name: Download {{ model_repo }} from Hugging Face
+  # `hf download` resumes, so an incomplete local copy is re-entered
+  # rather than restarted.
   ansible.builtin.command: >
     hf download {{ model_repo }} --local-dir {{ model_local_dir }}
   environment:
     HF_TOKEN: "{{ hf_token }}"
   when:
     - not model_already_seeded
-    - local_files.matched == 0
+    - not model_local_complete
 
-- name: Verify the download actually produced weights
-  ansible.builtin.find:
-    paths: "{{ model_local_dir }}"
-    patterns: "*.safetensors"
-  register: downloaded_files
+- name: Verify the download produced a complete set of weight shards
+  ansible.builtin.shell: |
+    set -o pipefail
+    shards=$(ls -1 {{ model_local_dir }} 2>/dev/null \
+      | grep -oE 'model-[0-9]+-of-[0-9]+\.safetensors' | sort -u)
+    count=$(echo "$shards" | grep -c . || true)
+    expected=$(echo "$shards" | head -1 | grep -oE 'of-[0-9]+' | grep -oE '[0-9]+' | sed 's/^0*//')
+    bytes=$(du -sb {{ model_local_dir }} 2>/dev/null | cut -f1 || echo 0)
+    echo "${count:-0} ${expected:-0} ${bytes:-0}"
+  args:
+    executable: /bin/bash
+  register: post_download
+  changed_when: false
   when: not model_already_seeded
-  failed_when:
-    - not model_already_seeded
-    - downloaded_files.matched == 0
+
+- name: Fail clearly if the download is incomplete
+  ansible.builtin.assert:
+    that:
+      - post_download.stdout.split()[1] | int > 0
+      - post_download.stdout.split()[0] | int == post_download.stdout.split()[1] | int
+      - post_download.stdout.split()[2] | int >= model_min_bytes
+    fail_msg: >-
+      Download incomplete: {{ post_download.stdout.split()[0] }} of
+      {{ post_download.stdout.split()[1] }} weight shards,
+      {{ (post_download.stdout.split()[2] | int / 1073741824) | round(1) }}GiB
+      in {{ model_local_dir }}.
+      Most likely an expired HF_TOKEN, a gated-repo rejection, or an
+      interrupted transfer. `hf download` resumes, so re-running the
+      playbook is safe. If it fails repeatedly, check `hf auth whoami`
+      and clear {{ model_local_dir }}.
+  when: not model_already_seeded
 
 - name: Mirror model to MinIO (resumable; skips what is already there)
   ansible.builtin.command: >
@@ -90,18 +193,46 @@
   delay: 10
   until: mirror_result.rc == 0
 
-- name: Verify the weights actually landed in MinIO
-  ansible.builtin.shell: >
-    set -o pipefail && mc ls uc02/{{ model_bucket }}/{{ model_prefix }}/ | grep -c safetensors
+# --- Post-mirror gate -------------------------------------------------
+# Runs unconditionally, including when the model was judged already
+# seeded, so the playbook never proceeds to start a predictor against an
+# incomplete bucket.
+- name: Verify the complete model landed in MinIO
+  ansible.builtin.shell: |
+    set -o pipefail
+    shards=$(mc ls --recursive uc02/{{ model_bucket }}/{{ model_prefix }}/ 2>/dev/null \
+      | grep -oE 'model-[0-9]+-of-[0-9]+\.safetensors' | sort -u)
+    count=$(echo "$shards" | grep -c . || true)
+    expected=$(echo "$shards" | head -1 | grep -oE 'of-[0-9]+' | grep -oE '[0-9]+' | sed 's/^0*//')
+    bytes=$(mc du --json uc02/{{ model_bucket }}/{{ model_prefix }}/ 2>/dev/null \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("size",0))' 2>/dev/null || echo 0)
+    echo "${count:-0} ${expected:-0} ${bytes:-0}"
   args:
     executable: /bin/bash
   register: upload_check
   changed_when: false
-  failed_when: upload_check.stdout | int < 1
+
+- name: Fail clearly if MinIO holds an incomplete model
+  ansible.builtin.assert:
+    that:
+      - upload_check.stdout.split()[1] | int > 0
+      - upload_check.stdout.split()[0] | int == upload_check.stdout.split()[1] | int
+      - upload_check.stdout.split()[2] | int >= model_min_bytes
+    fail_msg: >-
+      MinIO holds an incomplete model:
+      {{ upload_check.stdout.split()[0] }} of
+      {{ upload_check.stdout.split()[1] | default('?') }} weight shards,
+      {{ (upload_check.stdout.split()[2] | int / 1073741824) | round(1) }}GiB.
+      The predictor will CrashLoopBackOff in load_weights against this.
+      Clear and re-seed:
+        mc rm --recursive --force uc02/{{ model_bucket }}/{{ model_prefix }}/
+        ansible-playbook ansible/site.yml
 
 - name: Report seeded state
   ansible.builtin.debug:
-    msg: "Model present in MinIO: {{ upload_check.stdout | int }} safetensors files"
+    msg: >-
+      Model complete in MinIO: {{ upload_check.stdout.split()[0] }} weight shards,
+      {{ (upload_check.stdout.split()[2] | int / 1073741824) | round(1) }}GiB.
 
 - name: Check whether the predictor is currently ready
   ansible.builtin.shell: >

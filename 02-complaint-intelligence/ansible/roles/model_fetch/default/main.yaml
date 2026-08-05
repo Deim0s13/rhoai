@@ -1,0 +1,9 @@
+---
+# Floor for a complete model, in bytes. Granite 3.3 8B measures ~15GiB
+# across 4 weight shards; 14GiB leaves headroom for shard-size variation
+# without admitting a truncated transfer. Adjust if the model changes.
+#
+# Added 2026-08-05 after an incomplete seed (index file only, 4.5MiB)
+# passed every presence-based check in this role and the predictor
+# CrashLoopBackOffed in load_weights.
+model_min_bytes: 15032385536 # 14 GiB
