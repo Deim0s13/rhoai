@@ -63,7 +63,7 @@ _SPAN_DAYS = (DATA_END - DATA_START).days
 # harder towards the end of the window; everything else is uniform. THM-05
 # (digital) and THM-07 (hardship) are the two dominant themes in
 # scenarios.yaml, chosen so the trend is visible without being absurd.
-RISING_THEMES = {"THM-05": 2.5, "THM-07": 1.6}
+RISING_THEMES = {"THM-05": 1.6, "THM-07": 1.5}
 
 
 def random_date(theme_id=None):
