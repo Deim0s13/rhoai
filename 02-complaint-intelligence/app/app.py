@@ -85,22 +85,26 @@ def _parse_date(value):
 def _trend_windows(cbid):
     """Anchor the comparison to the latest complaint in the dataset, not to
     wall clock. The sample is fixed in time, so a real-time window would
-    show zero complaints and every theme would read as collapsing."""
+    show zero complaints and every theme would read as collapsing.
+
+    90 days, not 30: at ~33 complaints a month across 10 themes, a 30-day
+    window leaves most themes in single digits, where genuine growth is
+    invisible and one complaint swings the percentage wildly."""
     dates = [
         d for d in (_parse_date(c.get("received_date")) for c in cbid.values()) if d
     ]
     if not dates:
         return None, None, None
     latest = max(dates)
-    recent_start = latest - timedelta(days=29)
-    return recent_start - timedelta(days=30), recent_start, latest
+    recent_start = latest - timedelta(days=89)
+    return recent_start - timedelta(days=90), recent_start, latest
 
 
 def _trend_pct(recent, prior):
-    """None when there is no prior volume: a jump from zero is noise, not
-    signal, and showing '+100%' against a base of nothing invites a
-    question you cannot answer well."""
-    if not prior:
+    """None below a floor of 5 in the prior window: a swing from 3 to 0 is
+    not a trend, and -100% on a base of three invites a question the number
+    cannot answer."""
+    if prior < 5:
         return None
     return round((recent - prior) / prior * 100)
 

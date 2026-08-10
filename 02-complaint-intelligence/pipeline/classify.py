@@ -435,28 +435,36 @@ class Pipeline:
             f"- {r['id']}: {r['name']} — {r['definition'].strip()}"
             for r in self.taxonomy["root_causes"]
         )
+
+        # Prompt 0.2.0 (2026-08-11): the example JSON previously carried
+        # literal "THM-XX" / "RC-XX" placeholders, and on two complaints the
+        # model copied them through verbatim, producing a phantom root cause
+        # on the dashboard. Placeholders now describe what is wanted instead
+        # of resembling an answer, and the instruction is explicit.
         prompt = f"""You are classifying a bank complaint against a fixed taxonomy.
 
-Themes:
-{theme_block}
+    Themes:
+    {theme_block}
 
-Root causes:
-{root_cause_block}
+    Root causes:
+    {root_cause_block}
 
-{retrieved_context}
+    {retrieved_context}
 
-Complaint:
-\"\"\"{redacted_body}\"\"\"
+    Complaint:
+    \"\"\"{redacted_body}\"\"\"
 
-Respond with JSON only, no other text, in this exact shape:
-{{
-  "theme_id": "THM-XX",
-  "root_cause_id": "RC-XX",
-  "confidence": 0.0,
-  "citation_text": "the exact sentence from the complaint that supports this classification"
-}}
+    Respond with JSON only, no other text, in this exact shape:
+    {{
+      "theme_id": "<one id from the Themes list above>",
+      "root_cause_id": "<one id from the Root causes list above>",
+      "confidence": 0.0,
+      "citation_text": "the exact sentence from the complaint that supports this classification"
+    }}
 
-citation_text must be copied verbatim from the complaint text above."""
+    theme_id and root_cause_id must be ids that appear in the lists above.
+    Do not invent ids. citation_text must be copied verbatim from the
+    complaint text above."""
 
         completion_resp = requests.post(
             f"{self.config.llama_stack_url}/v1/chat/completions",
@@ -497,12 +505,27 @@ citation_text must be copied verbatim from the complaint text above."""
             classification["theme_id"], redacted_body
         )
 
+        # The model can return an id that is not in the taxonomy, including
+        # copying a placeholder out of the prompt's example JSON verbatim
+        # (confirmed 2026-08-11). The evidence record keeps whatever the
+        # model actually said, because its job is to show what happened;
+        # validity is recorded alongside it and drives routing.
+        valid_theme_ids = {t["id"] for t in self.taxonomy["themes"]}
+        valid_root_cause_ids = {r["id"] for r in self.taxonomy["root_causes"]}
+        theme_id_valid = classification["theme_id"] in valid_theme_ids
+        root_cause_id_valid = classification["root_cause_id"] in valid_root_cause_ids
+
         low_confidence = confidence < self.confidence_threshold
         narrow_margin = (
             taxonomy_ambig["delta"] is not None
             and taxonomy_ambig["delta"] < self.config.ambiguity_delta_threshold
         )
-        routed_to_review = low_confidence or narrow_margin
+        routed_to_review = (
+            low_confidence
+            or narrow_margin
+            or not theme_id_valid
+            or not root_cause_id_valid
+        )
 
         reasons = []
         if low_confidence:
@@ -516,22 +539,34 @@ citation_text must be copied verbatim from the complaint text above."""
                 f"({taxonomy_ambig['second_score']:.2f}), within "
                 f"{self.config.ambiguity_delta_threshold} of each other"
             )
+        if not theme_id_valid:
+            reasons.append(
+                f"model returned theme id '{classification['theme_id']}', which is "
+                f"not in taxonomy version {self.taxonomy_version}"
+            )
+        if not root_cause_id_valid:
+            reasons.append(
+                f"model returned root cause id '{classification['root_cause_id']}', "
+                f"which is not in taxonomy version {self.taxonomy_version}"
+            )
         review_reason = "; ".join(reasons) if reasons else None
 
-        candidate_theme_ids = []
-        if narrow_margin:
-            reasons.append(
-                f"chosen theme {taxonomy_ambig['top_theme']} ({taxonomy_ambig['top_score']:.2f}) "
-                f"is close to the next-best match {taxonomy_ambig['second_theme']} "
-                f"({taxonomy_ambig['second_score']:.2f}), within "
-                f"{self.config.ambiguity_delta_threshold} of each other"
-            )
+        # The competing theme, surfaced so a reviewer sees the same two
+        # candidates the routing decision was made on. Previously always
+        # empty, which left the review queue template with nothing to show.
+        candidate_theme_ids = (
+            [taxonomy_ambig["second_theme"]]
+            if narrow_margin and taxonomy_ambig["second_theme"]
+            else []
+        )
 
         return {
             "complaint_id": c["complaint_id"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "theme_id": classification["theme_id"],
             "root_cause_id": classification["root_cause_id"],
+            "theme_id_valid": theme_id_valid,
+            "root_cause_id_valid": root_cause_id_valid,
             "confidence": confidence,
             "citation": citation,
             "citation_verified": citation_verified,
@@ -542,23 +577,11 @@ citation_text must be copied verbatim from the complaint text above."""
             "pii_redactions": pii_redactions,
             "injection_blocked": injection_blocked,
             "guardrail_policy_id": "regex",
-            "prompt_version": "0.1.0",
+            "prompt_version": "0.2.0",
             "model_version": self.model_id,
             "taxonomy_version": self.taxonomy_version,
             "trace_id": completion_resp.json().get("id", str(uuid.uuid4())),
         }
-
-    def write_evidence_record(self, record: dict) -> str:
-        record_bytes = json.dumps(record).encode("utf-8")
-        record_key = f"{self.config.evidence_prefix}/{record['complaint_id']}.json"
-        self.minio_client.put_object(
-            self.config.evidence_bucket,
-            record_key,
-            data=io.BytesIO(record_bytes),
-            length=len(record_bytes),
-            content_type="application/json",
-        )
-        return record_key
 
     # ---------------------------------------------------------------
     # Bulk loaders, used by both consumers
