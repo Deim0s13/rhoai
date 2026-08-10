@@ -32,23 +32,29 @@ echo "=== ADR-0003 Phase 2: Kuadrant (isolated namespace), Gateway, TLS ==="
 echo
 
 echo "--- Verifying platform-managed servicemesh subscription (read-only) ---"
-if ! oc get subscription servicemeshoperator3 -n openshift-operators >/dev/null 2>&1; then
-  echo "FAIL: servicemesh subscription not found. The platform install may"
-  echo "not have settled. Confirm base RHOAI/ingress state before Phase 2."
-  exit 1
+# On some RHOAI 3.4 catalog items the Gateway API implementation is
+# deployed directly (Helm-managed istiod in openshift-ingress) with no
+# OLM subscription at all. Where that is the case there is no upgrade
+# plan for a Kuadrant install to sweep in, so this check does not apply
+# (confirmed 2026-08-05). Where a subscription does exist, it must stay
+# on v3.1.x throughout.
+if oc get subscription servicemeshoperator3 -n openshift-operators >/dev/null 2>&1; then
+  SM_BEFORE=$(oc get subscription servicemeshoperator3 -n openshift-operators \
+    -o jsonpath='{.status.installedCSV}')
+  echo "Service Mesh installed CSV (platform-managed, not touched): ${SM_BEFORE}"
+  case "${SM_BEFORE}" in
+    servicemeshoperator3.v3.1.*) ;;
+    *)
+      echo "FAIL: Service Mesh is at ${SM_BEFORE:-<empty>}, outside v3.1.x,"
+      echo "BEFORE this script has done anything. Do not proceed."
+      exit 1
+      ;;
+  esac
+else
+  SM_BEFORE=""
+  echo "No servicemesh OLM subscription on this cluster: the Gateway API"
+  echo "implementation is deployed directly. Version guard not applicable."
 fi
-SM_BEFORE=$(oc get subscription servicemeshoperator3 -n openshift-operators \
-  -o jsonpath='{.status.installedCSV}')
-echo "Service Mesh installed CSV (platform-managed, not touched): ${SM_BEFORE}"
-case "${SM_BEFORE}" in
-  servicemeshoperator3.v3.1.*) ;;
-  *)
-    echo "FAIL: Service Mesh is at ${SM_BEFORE:-<empty>}, outside v3.1.x,"
-    echo "BEFORE this script has done anything. Do not proceed."
-    echo "See RUNBOOK-servicemesh-recovery.md."
-    exit 1
-    ;;
-esac
 echo
 
 echo "--- Guard: gateway TLS certificate ---"
@@ -167,17 +173,21 @@ fi
 echo
 
 echo "--- Guard: verify Service Mesh was untouched ---"
-SM_AFTER=$(oc get subscription servicemeshoperator3 -n openshift-operators \
-  -o jsonpath='{.status.installedCSV}')
-SM_DEPLOY=$(oc get deployment -n openshift-operators \
-  -o name 2>/dev/null | grep -ci servicemesh || true)
-if [ "${SM_AFTER}" == "${SM_BEFORE}" ] && [ "${SM_DEPLOY}" -ge 1 ]; then
-  echo "OK: Service Mesh unchanged at ${SM_AFTER}, operator deployment present."
+if [ -z "${SM_BEFORE}" ]; then
+  echo "Skipped: no servicemesh OLM subscription on this cluster."
 else
-  echo "FAIL: Service Mesh state changed during Kuadrant install"
-  echo "(before: ${SM_BEFORE}, after: ${SM_AFTER:-<empty>}, deployment count: ${SM_DEPLOY})."
-  echo "Do NOT proceed with manual steps. See RUNBOOK-servicemesh-recovery.md."
-  exit 1
+  SM_AFTER=$(oc get subscription servicemeshoperator3 -n openshift-operators \
+    -o jsonpath='{.status.installedCSV}')
+  SM_DEPLOY=$(oc get deployment -n openshift-operators \
+    -o name 2>/dev/null | grep -ci servicemesh || true)
+  if [ "${SM_AFTER}" == "${SM_BEFORE}" ] && [ "${SM_DEPLOY}" -ge 1 ]; then
+    echo "OK: Service Mesh unchanged at ${SM_AFTER}, operator deployment present."
+  else
+    echo "FAIL: Service Mesh state changed during Kuadrant install"
+    echo "(before: ${SM_BEFORE}, after: ${SM_AFTER:-<empty>}, deployment count: ${SM_DEPLOY})."
+    echo "Do NOT proceed with manual steps. See RUNBOOK-servicemesh-recovery.md."
+    exit 1
+  fi
 fi
 echo
 

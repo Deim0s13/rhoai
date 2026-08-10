@@ -158,7 +158,7 @@
       | grep -oE 'model-[0-9]+-of-[0-9]+\.safetensors' | sort -u)
     count=$(echo "$shards" | grep -c . || true)
     expected=$(echo "$shards" | head -1 | grep -oE 'of-[0-9]+' | grep -oE '[0-9]+' | sed 's/^0*//')
-    bytes=$(du -sb {{ model_local_dir }} 2>/dev/null | cut -f1 || echo 0)
+    bytes=$(( $(du -sk {{ model_local_dir }} 2>/dev/null | cut -f1 || echo 0) * 1024 ))
     echo "${count:-0} ${expected:-0} ${bytes:-0}"
   args:
     executable: /bin/bash
