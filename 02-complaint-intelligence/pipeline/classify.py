@@ -587,6 +587,18 @@ class Pipeline:
     # Bulk loaders, used by both consumers
     # ---------------------------------------------------------------
 
+    def write_evidence_record(self, record: dict) -> str:
+        record_bytes = json.dumps(record).encode("utf-8")
+        record_key = f"{self.config.evidence_prefix}/{record['complaint_id']}.json"
+        self.minio_client.put_object(
+            self.config.evidence_bucket,
+            record_key,
+            data=io.BytesIO(record_bytes),
+            length=len(record_bytes),
+            content_type="application/json",
+        )
+        return record_key
+
     def load_all_complaints(self) -> list:
         response = self.minio_client.get_object(
             self.config.complaints_bucket, self.config.complaints_key
