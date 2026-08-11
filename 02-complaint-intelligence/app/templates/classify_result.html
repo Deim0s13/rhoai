@@ -1,0 +1,91 @@
+{% extends "base.html" %} {% block title %}{{ complaint.complaint_id }} — Classified{% endblock %}
+{% block content %}
+<h1>{{ complaint.complaint_id }}</h1>
+
+{% if error %}
+<p class="subtitle">Classification failed.</p>
+<div class="warning-banner">{{ error }}</div>
+<p class="subtitle">
+  The application does not quietly correct or hide a model failure (ADR-0007). What went wrong is
+  shown above rather than replaced with a plausible result.
+</p>
+
+{% else %}
+<p class="subtitle">
+  Classified live: guardrails, retrieval, model call, citation check, review routing.
+</p>
+
+<h2>Source complaint</h2>
+<div class="complaint-text">
+  {{ before }}{% if cited %}<span class="citation">{{ cited }}</span
+  ><span class="stamp">{{ "%.1f"|format(record.confidence) }}</span>{% endif %}{{ after }}
+</div>
+{% if cited %}
+<p class="subtitle">
+  The underlined sentence is the text this classification rests on, matched verbatim against the
+  complaint.
+</p>
+{% else %}
+<p class="subtitle">
+  The model's citation did not match the complaint text verbatim, so no span is underlined and the
+  record is marked unverified.
+</p>
+{% endif %}
+
+<h2 style="margin-top: 40px">Classification</h2>
+<table class="evidence">
+  <tr>
+    <td>theme_id</td>
+    <td>
+      {{ record.theme_id }} {% if record.theme_id_valid is defined and not record.theme_id_valid %}
+      <span class="badge badge-review">not in taxonomy</span>
+      {% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td>root_cause_id</td>
+    <td>
+      {{ record.root_cause_id }} {% if record.root_cause_id_valid is defined and not
+      record.root_cause_id_valid %}
+      <span class="badge badge-review">not in taxonomy</span>
+      {% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td>confidence</td>
+    <td>{{ "%.2f"|format(record.confidence) }}</td>
+  </tr>
+  <tr>
+    <td>citation_verified</td>
+    <td>{{ record.citation_verified }}</td>
+  </tr>
+  <tr>
+    <td>pii_detected</td>
+    <td>{{ record.pii_detected }} ({{ record.pii_redactions }})</td>
+  </tr>
+  <tr>
+    <td>routed_to_review</td>
+    <td>{{ record.routed_to_review }}</td>
+  </tr>
+</table>
+
+{% if record.routed_to_review %}
+<div class="warning-banner" style="margin-top: 24px">
+  Routed to review: {{ record.review_reason }}
+</div>
+{% if record.candidate_themes %}
+<p class="subtitle">
+  Competing theme{{ 's' if record.candidate_themes|length != 1 }}: {{
+  record.candidate_themes|join(', ') }}
+</p>
+{% endif %} {% endif %}
+
+<p style="margin-top: 32px">
+  <a href="{{ url_for('evidence_detail', complaint_id=record.complaint_id) }}">
+    View the full evidence record →
+  </a>
+</p>
+{% endif %}
+
+<p style="margin-top: 24px"><a href="{{ url_for('classify_picker') }}">← Back to classify</a></p>
+{% endblock %}
