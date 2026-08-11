@@ -173,7 +173,7 @@ Not part of the standard rebuild. Only relevant if evaluating the Economics pill
 **Run MaaS phases only after step 7's smoke test passes.** The core build has zero Service Mesh dependency (confirmed 2026-07-28: maas-default-gateway runs on the OpenShift ingress gateway controller, and the demo path uses Routes and service DNS). Keeping the two failure domains separated means a servicemesh guard trip cannot be confused with a broken core build.
 
 ```bash
-chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh scripts/setup-maas-phase3.sh scripts/setup-maas-phase4.sh scripts/setup-maas-phase5.sh
+chmod +x scripts/setup-maas-phase1.sh scripts/setup-maas-phase2.sh scripts/setup-maas-phase3.sh scripts/setup-maas-phase4.sh scripts/maas-demo-verify.sh
 ```
 
 ### Phase 1: prerequisites
