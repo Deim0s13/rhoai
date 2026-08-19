@@ -1,7 +1,38 @@
 # 05-workbench.yaml
 # RHOAI Workbench (Jupyter) for running the RAG pipeline notebooks.
-# Uses the standard data science image — no custom image needed.
-# Sized conservatively; the heavy compute is in the InferenceService, not here.
+#
+# UPDATED (RHOAI 3.4): environment variables are now baked directly into
+# this manifest rather than patched manually via `oc patch` after deployment.
+# During the UC01 live session on RHOAI 2.25.8, variables were set manually
+# and never written back to the repo, making the workbench non-reproducible.
+# This version is self-contained — apply it and the workbench is ready to use
+# without any post-deploy manual steps.
+#
+# UPDATED (RHOAI 3.4): workbench image tag is intentionally left as a
+# VALIDATE placeholder. The SHA used on RHOAI 2.25.8
+# (@sha256:128879eb...) will not be valid on 3.4. On first deploy, run:
+#   oc get imagestream jupyter-datascience-cpu-py312-ubi9 \
+#     -n redhat-ods-applications \
+#     -o jsonpath='{.status.tags[?(@.tag=="2025.2")].items[0].dockerImageReference}'
+# and update the image field with the returned SHA-pinned reference.
+# Using the internal registry reference is preferred over external Quay tags
+# since it is guaranteed pullable on the cluster regardless of external
+# registry availability.
+#
+# UPDATED (RHOAI 3.4): INFERENCE_ENDPOINT uses the in-cluster service
+# directly on port 8080. On RHOAI 3.4, KServe RawDeployment creates a
+# headless predictor service (ClusterIP: None), so in-cluster clients must
+# target the container port (:8080) rather than the service port (:80).
+# The format is: http://<service-name>.<namespace>.svc.cluster.local:8080
+# This is a confirmed behaviour difference from earlier RHOAI versions.
+#
+# Sensitive variables (MINIO_ACCESS_KEY, MINIO_SECRET_KEY) are sourced
+# from the workbench-credentials Secret rather than stored in plain text
+# in this manifest. Apply the secret before applying this manifest:
+#   oc create secret generic workbench-credentials \
+#     -n sovereign-rag \
+#     --from-literal=MINIO_ACCESS_KEY=<value> \
+#     --from-literal=MINIO_SECRET_KEY=<value>
 apiVersion: kubeflow.org/v1
 kind: Notebook
 metadata:
@@ -16,7 +47,28 @@ spec:
     spec:
       containers:
         - name: sovereign-rag-workbench
-          image: registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9@sha256:128879eb003be1d01c721bba289d2fce6adf74695c738247076704fd461a3fc8
+          # VALIDATE: update this SHA on first deploy against the RHOAI 3.4 cluster.
+          # See instructions in the file header above.
+          image: registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9:2025.2
+          env:
+            - name: MINIO_ENDPOINT
+              value: "minio.sovereign-rag.svc.cluster.local:9000"
+            - name: MINIO_BUCKET
+              value: "documents"
+            - name: MINIO_USE_SSL
+              value: "false"
+            - name: MILVUS_HOST
+              value: "milvus.sovereign-rag.svc.cluster.local"
+            - name: MILVUS_PORT
+              value: "19530"
+            # RHOAI 3.4: headless predictor service — target container port 8080 directly.
+            # On earlier RHOAI the service port was 80 -> 8080; on 3.4 ClusterIP: None
+            # means there is no service port translation, so :8080 is required.
+            - name: INFERENCE_ENDPOINT
+              value: "http://granite-instruct-predictor.sovereign-rag.svc.cluster.local:8080"
+          envFrom:
+            - secretRef:
+                name: workbench-credentials # MINIO_ACCESS_KEY, MINIO_SECRET_KEY
           resources:
             requests:
               cpu: "1"

@@ -1,34 +1,58 @@
 # Workbench setup guide
 
-This guide walks through configuring the RHOAI workbench for use case 01
-before running the notebooks. Complete all steps before opening a notebook.
+This guide walks through preparing and running the RHOAI workbench for
+use case 01 on RHOAI 3.4. Read it before opening JupyterLab.
 
 ---
 
-## Overview
+## What changed from the original guide
 
-The notebooks require environment variables to connect to MinIO and Milvus,
-and to reach the Granite InferenceService. These are set in the RHOAI
-workbench configuration — not in the notebooks themselves.
+This guide replaces an earlier version written during the UC01 live session
+on RHOAI 2.25.8. The key differences on RHOAI 3.4:
 
-Setting credentials as workbench environment variables means:
+- **Environment variables are now baked into `05-workbench.yaml`** — no
+  manual patching via the dashboard or `oc patch` is required. Applying
+  the manifest is sufficient.
+- **No bearer token is required** — this deployment uses KServe
+  RawDeployment mode, which does not involve Knative or Service Mesh
+  authentication. The `INFERENCE_TOKEN` variable is not set.
+- **The inference endpoint format changed** — on RHOAI 3.4, KServe
+  RawDeployment creates a headless predictor service (ClusterIP: None).
+  In-cluster clients must target the container port (`:8080`) directly.
+  The earlier format targeting service port `:80` does not work on 3.4.
+- **Credentials are sourced from a Secret**, not AWS SSM — the Terraform
+  and SSM credential retrieval path from the original design does not apply
+  to RHDP sandbox environments.
 
-- No credentials appear in notebook code or output
-- Notebooks are safe to commit to git
-- Variables persist across notebook sessions for the lifetime of the workbench
+---
+
+## Prerequisites
+
+Before applying the workbench manifest, the `workbench-credentials` Secret
+must exist in the namespace. Apply it once with your chosen credentials:
+
+    oc create secret generic workbench-credentials \
+      -n sovereign-rag \
+      --from-literal=MINIO_ACCESS_KEY=<your-minio-access-key> \
+      --from-literal=MINIO_SECRET_KEY=<your-minio-secret-key>
+
+These are the same credentials used when deploying MinIO. If you have
+already deployed MinIO and forgotten the credentials, retrieve them from
+the cluster:
+
+    oc get secret minio-tenant-credentials -n sovereign-rag \
+      -o jsonpath='{.data.accesskey}' | base64 -d && echo
+    oc get secret minio-tenant-credentials -n sovereign-rag \
+      -o jsonpath='{.data.secretkey}' | base64 -d && echo
 
 ---
 
 ## Step 1 — Confirm the deployment is ready
 
-Before configuring the workbench, verify the dependent services are running.
-Run these commands from a terminal authenticated to the cluster:
+Verify all dependent services are running before starting the workbench:
 
-    # Namespace and core resources
+    # All pods in the namespace
     oc get pods -n sovereign-rag
-
-    # MinIO tenant — should show Running
-    oc get tenant sovereign-rag-minio -n sovereign-rag
 
     # Milvus — should show Running
     oc get pods -n sovereign-rag -l app=milvus
@@ -36,245 +60,287 @@ Run these commands from a terminal authenticated to the cluster:
     # InferenceService — READY column should show True
     oc get inferenceservice granite-instruct -n sovereign-rag
 
+    # MinIO buckets populated
+    mc ls sovereign-rag/models/granite-3.3-8b-instruct | head -5
+    mc ls sovereign-rag/documents
+
 Do not proceed until all services are healthy. The InferenceService in
-particular can take 3–5 minutes to reach Ready state after the model
-weights have loaded from MinIO.
+particular takes 3–5 minutes to reach Ready state while the storage
+initializer pulls ~15GiB of model weights from MinIO and vLLM loads them
+into GPU memory.
 
 ---
 
-## Step 2 — Retrieve the values you need
+## Step 2 — Confirm the workbench image tag
 
-You will need the following values before configuring the workbench.
-Retrieve them now and keep them to hand.
+The workbench manifest uses a version tag (`2025.2`) rather than a pinned
+SHA, because the correct SHA differs between RHOAI versions. On first
+deploy, confirm the image resolves correctly by getting the SHA-pinned
+reference from the cluster's own imagestream and updating the manifest:
 
-### MinIO endpoint
+    oc get imagestream jupyter-datascience-cpu-py312-ubi9 \
+      -n redhat-ods-applications \
+      -o jsonpath='{.status.tags[?(@.tag=="2025.2")].items[0].dockerImageReference}'
 
-    oc get route -n sovereign-rag -l app=milvus -o jsonpath='{.items[0].spec.host}'
+If the `2025.2` tag does not exist, list available tags and use the most
+recent one:
 
-If no route exists, use the internal service URL:
+    oc get imagestream jupyter-datascience-cpu-py312-ubi9 \
+      -n redhat-ods-applications \
+      -o jsonpath='{.status.tags[*].tag}'
 
-    echo "http://minio.sovereign-rag.svc.cluster.local:9000"
-
-### MinIO credentials
-
-Retrieve from AWS SSM — these were set by the Ansible post-deploy step:
-
-    aws ssm get-parameter \
-      --name "/presales-lab/YOUR_CLUSTER_NAME/minio/access-key" \
-      --query "Parameter.Value" --output text
-
-    aws ssm get-parameter \
-      --name "/presales-lab/YOUR_CLUSTER_NAME/minio/secret-key" \
-      --with-decryption \
-      --query "Parameter.Value" --output text
-
-Replace `YOUR_CLUSTER_NAME` with the value used during Terraform bootstrap.
-
-### Granite InferenceService URL
-
-    oc get inferenceservice granite-instruct -n sovereign-rag \
-      -o jsonpath='{.status.url}'
-
-### Inference bearer token
-
-In the RHOAI dashboard, navigate to:
-
-    Data Science Projects → sovereign-rag → Models → granite-instruct
-
-Select the model, then expand **Token authentication**. Copy the token value.
-
-Alternatively, retrieve it via CLI:
-
-    oc get secret -n sovereign-rag \
-      -l serving.knative.openshift.io/service=granite-instruct \
-      -o jsonpath='{.items[0].data.token}' | base64 -d
+Update the `image:` field in `manifests/05-workbench.yaml` with the
+SHA-pinned reference before applying. Using the internal registry
+reference is preferred over external Quay tags — it is guaranteed pullable
+on the cluster regardless of external registry availability.
 
 ---
 
-## Step 3 — Open the workbench
+## Step 3 — Apply the workbench manifest
 
-1. Log in to the RHOAI dashboard
-2. Navigate to **Data Science Projects**
-3. Select the **sovereign-rag** project
-4. Under **Workbenches**, find **sovereign-rag-workbench**
-5. If the workbench is stopped, click **Start** and wait for it to reach Running state
-6. Click **Open** to launch JupyterLab
+    oc apply -f manifests/05-workbench.yaml
 
----
+Watch it come up:
 
-## Step 4 — Set environment variables
+    oc get pods -n sovereign-rag | grep workbench
 
-Environment variables are configured before the workbench starts, not inside
-JupyterLab. If the workbench is already running, you will need to stop it,
-update the variables, and restart it.
-
-### In the RHOAI dashboard
-
-1. Navigate to **Data Science Projects → sovereign-rag → Workbenches**
-2. Click the three-dot menu next to **sovereign-rag-workbench**
-3. Select **Edit workbench**
-4. Scroll down to **Environment variables**
-5. Add each variable below using **Add variable**
-
-### Variables to set
-
-| Variable | Type | Value |
-|---|---|---|
-| `MINIO_ENDPOINT` | Config map | MinIO endpoint retrieved in Step 2 |
-| `MINIO_BUCKET` | Config map | `documents` |
-| `MINIO_USE_SSL` | Config map | `false` (unless your MinIO route uses TLS) |
-| `MILVUS_HOST` | Config map | `milvus.sovereign-rag.svc.cluster.local` |
-| `MILVUS_PORT` | Config map | `19530` |
-| `INFERENCE_ENDPOINT` | Config map | InferenceService URL retrieved in Step 2 |
-| `MINIO_ACCESS_KEY` | Secret | MinIO access key retrieved in Step 2 |
-| `MINIO_SECRET_KEY` | Secret | MinIO secret key retrieved in Step 2 |
-| `INFERENCE_TOKEN` | Secret | Bearer token retrieved in Step 2 |
-
-Use **Config map** type for non-sensitive values.
-Use **Secret** type for credentials — RHOAI will store these in a Kubernetes
-Secret rather than a ConfigMap, which is the correct handling for sensitive data.
-
-6. Click **Update workbench**
-7. The workbench will restart. Wait for it to return to Running state.
+The pod name follows the pattern `sovereign-rag-workbench-0`. Status
+`2/2 Running` confirms both the notebook container and the OAuth proxy
+sidecar are healthy.
 
 ---
 
-## Step 5 — Verify environment variables in JupyterLab
+## Step 4 — Verify environment variables
 
-Once the workbench is running, open a terminal in JupyterLab
-(**File → New → Terminal**) and confirm the variables are present:
+Confirm the variables landed correctly before opening JupyterLab. This
+avoids discovering missing variables partway through a notebook run:
 
-    env | grep -E "MINIO|MILVUS|INFERENCE"
+    oc exec -n sovereign-rag sovereign-rag-workbench-0 \
+      -c sovereign-rag-workbench -- env | grep -E "MINIO|MILVUS|INFERENCE"
 
-You should see all nine variables listed. If any are missing, return to
-Step 4 and check the workbench environment variable configuration.
+You should see the following variables:
 
-Do not proceed to the notebooks if variables are missing — the notebooks
-will fail immediately with a `KeyError` on the missing variable.
+| Variable             | Expected value                                                           |
+| -------------------- | ------------------------------------------------------------------------ |
+| `MINIO_ENDPOINT`     | `minio.sovereign-rag.svc.cluster.local:9000`                             |
+| `MINIO_BUCKET`       | `documents`                                                              |
+| `MINIO_USE_SSL`      | `false`                                                                  |
+| `MINIO_ACCESS_KEY`   | your chosen access key                                                   |
+| `MINIO_SECRET_KEY`   | your chosen secret key                                                   |
+| `MILVUS_HOST`        | `milvus.sovereign-rag.svc.cluster.local`                                 |
+| `MILVUS_PORT`        | `19530`                                                                  |
+| `INFERENCE_ENDPOINT` | `http://granite-instruct-predictor.sovereign-rag.svc.cluster.local:8080` |
+
+If any are missing, confirm the `workbench-credentials` Secret exists and
+that the manifest was applied successfully. Additional `MINIO_*` and
+`MILVUS_*` entries from Kubernetes service discovery are expected and
+harmless.
 
 ---
 
-## Step 6 — Upload notebooks
+## Step 5 — Open JupyterLab
 
-If the notebooks are not already present in the workbench:
+Get the workbench URL:
 
-1. In JupyterLab, click the **Upload** button (arrow icon) in the file browser
-2. Upload both notebooks from your local clone of this repo:
-   - `01-sovereign-rag/notebooks/01-ingest-and-embed.ipynb`
-   - `01-sovereign-rag/notebooks/02-rag-query.ipynb`
+    oc get route -n sovereign-rag | grep workbench
 
-If you have the repo cloned and accessible from the workbench (e.g. via a
-persistent volume or git clone), you can also clone directly:
+Open the URL in your browser and log in via OpenShift OAuth. If prompted
+for a notebook token, retrieve it from the running pod:
 
-    cd /opt/app-root/src
-    git clone https://github.com/Deim0s13/rhoai.git
-    cd rhoai/01-sovereign-rag/notebooks
+    oc exec -n sovereign-rag sovereign-rag-workbench-0 \
+      -c sovereign-rag-workbench -- jupyter server list
+
+Set a browser session password when prompted — this protects the JupyterLab
+session and is only required once per browser session.
+
+---
+
+## Step 6 — Clone the repo and open the notebooks
+
+In JupyterLab, open a terminal (**File → New → Terminal**) and clone the
+repo into the persistent volume:
+
+    git clone https://github.com/Deim0s13/rhoai.git /opt/app-root/src/rhoai
+
+Navigate to the notebooks directory in the left-hand file browser:
+
+    /opt/app-root/src/rhoai/01-sovereign-rag/notebooks/
+
+Open `01-ingest-and-embed.ipynb`. Do not open notebook 02 until notebook
+01 has completed successfully.
 
 ---
 
 ## Step 7 — Run the notebooks
 
-Run notebooks in order. Do not run notebook 02 before notebook 01 has
-completed successfully.
+Run all cells in sequence from top to bottom. Do not skip cells or run
+them out of order.
 
 ### Notebook 01 — ingest-and-embed
 
-1. Open `01-ingest-and-embed.ipynb`
-2. Run cells in sequence from top to bottom
-3. Cell 1 installs dependencies — this takes 1–2 minutes on first run
-4. Cell 3 downloads PDFs from MinIO — confirm files appear in the output
-5. Cell 10 runs a verification query against Milvus — confirm results are returned
-6. Cell 11 cleans up temporary files
+Runs once per environment, or when the document corpus changes.
 
-Expected total runtime: 5–15 minutes depending on corpus size and CPU speed.
+| Cell | What it does                            | Watch for                                               |
+| ---- | --------------------------------------- | ------------------------------------------------------- |
+| 1    | Install dependencies                    | All packages install cleanly — takes 1–2 min            |
+| 2    | Load configuration                      | All variables print correctly                           |
+| 3    | Download PDFs from MinIO                | Both PDFs appear in the output                          |
+| 4    | Parse and chunk PDFs                    | Total chunks reported (expect ~300–400 for 2 docs)      |
+| 5    | Load embedding model                    | Model downloads from HuggingFace — takes ~30s first run |
+| 6    | Generate embeddings                     | Progress bar completes without error                    |
+| 7    | Connect to Milvus and create collection | "Created collection" or "Using existing collection"     |
+| 8    | Insert vectors                          | Total vectors inserted matches chunk count              |
+| 9    | Build index                             | "Index built and collection loaded into memory"         |
+| 10   | Verification query                      | Top 3 results returned with source citations            |
+| 11   | Cleanup                                 | Temp directory removed                                  |
+
+Expected total runtime: 5–15 minutes.
+
+**Important — kernel restart if pymilvus import fails:** if Cell 7 raises
+an `AttributeError` related to `marshmallow`, restart the kernel
+(**Kernel → Restart Kernel**) and re-run from Cell 1. The install in Cell 1
+must complete before the kernel loads the packages into memory.
 
 ### Notebook 02 — rag-query
 
-1. Open `02-rag-query.ipynb`
-2. Run cells in sequence from top to bottom
-3. Cell 1 installs dependencies
-4. Cell 4 verifies the Granite model is reachable — check the model name output
-5. Cells 7, 8, and 9 run example queries — review outputs for quality
-6. Cell 9 (retrieval diagnostic) shows raw Milvus results without LLM generation
+Run after notebook 01 has completed successfully.
+
+| Cell | What it does          | Watch for                                          |
+| ---- | --------------------- | -------------------------------------------------- |
+| 1    | Install dependencies  | All packages install cleanly                       |
+| 2    | Load configuration    | `MODEL_NAME` should show `granite-3-3-8b-instruct` |
+| 3    | Connect to Milvus     | Vector count matches what notebook 01 inserted     |
+| 4    | Connect to Granite    | Model listed as `granite-3-3-8b-instruct`          |
+| 5    | Define RAG pipeline   | Functions defined without error                    |
+| 6    | Define display helper | Function defined without error                     |
+| 7–9  | Example queries       | Coherent, grounded answers with source citations   |
 
 Expected total runtime: 2–3 minutes to set up, then interactive.
 
 ---
 
+## Smoke test before running notebooks
+
+Once the InferenceService is `READY: True`, verify the model endpoint is
+reachable directly before starting the notebooks. This confirms the serving
+layer is working independently of the notebook stack:
+
+    POD=$(oc get pods -n sovereign-rag \
+      -l serving.kserve.io/inferenceservice=granite-instruct \
+      -o jsonpath='{.items[0].metadata.name}')
+
+    oc port-forward -n sovereign-rag $POD 8081:8080
+
+In a separate terminal:
+
+    curl -s http://localhost:8081/v1/models | python3 -m json.tool
+
+A response listing `granite-3-3-8b-instruct` confirms the serving layer is
+working. Then run a generation test:
+
+    curl -s http://localhost:8081/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{"model": "granite-3-3-8b-instruct", "messages": [{"role": "user", "content": "What is capital adequacy in banking, in one sentence?"}], "max_tokens": 100}' \
+      | python3 -m json.tool
+
+A coherent answer confirms end-to-end model serving before the notebooks
+add Milvus and embedding into the picture.
+
+---
+
 ## Troubleshooting
 
-### Milvus connection refused
+### Workbench pod stays Pending
 
-Confirm Milvus is running and the service name is correct:
+Most likely the workbench image tag could not be resolved. Check:
 
-    oc get svc -n sovereign-rag | grep milvus
+    oc describe pod sovereign-rag-workbench-0 -n sovereign-rag | grep -A5 Events
 
-The `MILVUS_HOST` variable should match the service name exactly.
-If the workbench is in the same namespace (`sovereign-rag`), the short
-hostname `milvus` will resolve. If in a different namespace, use the
-fully qualified name `milvus.sovereign-rag.svc.cluster.local`.
+If you see an `ImagePullBackOff` or `ErrImagePull` event, update the image
+field in `05-workbench.yaml` with the correct SHA-pinned reference per
+Step 2, delete the existing Notebook CR and PVC, and reapply:
 
-### InferenceService returns 401 Unauthorized
+    oc delete notebook sovereign-rag-workbench -n sovereign-rag
+    oc delete pvc sovereign-rag-workbench-pvc -n sovereign-rag
+    oc apply -f manifests/05-workbench.yaml
 
-The bearer token has likely expired or was copied incorrectly.
-Retrieve a fresh token following Step 2 and update the `INFERENCE_TOKEN`
-workbench environment variable.
+### Environment variables are missing
 
-### Model name not found in Cell 4 of notebook 02
+Confirm the `workbench-credentials` Secret exists:
 
-vLLM serves the model under the name of the directory it was loaded from.
-Run the following to see what name vLLM is reporting:
+    oc get secret workbench-credentials -n sovereign-rag
 
-    curl -s $(oc get inferenceservice granite-instruct -n sovereign-rag \
-      -o jsonpath='{.status.url}')/v1/models \
-      -H "Authorization: Bearer YOUR_TOKEN" | python3 -m json.tool
+If it is missing, create it per the Prerequisites section and restart the
+workbench pod:
 
-Update `MODEL_NAME` in notebook 02 Cell 2 to match the reported name.
+    oc delete pod sovereign-rag-workbench-0 -n sovereign-rag
 
-### InferenceService not reaching Ready state
+### pymilvus import fails with AttributeError on marshmallow
 
-The most common causes are:
+This is a known Python 3.12 package version conflict. Restart the kernel
+(**Kernel → Restart Kernel**) and re-run Cell 1 before retrying Cell 7.
+If the error persists after a restart, open a JupyterLab terminal and run:
 
-- Model weights not fully seeded to MinIO — check Ansible completed successfully
-- GPU node not available or node selector label mismatch — verify with:
+    pip install pymilvus==2.5.4 --force-reinstall
+    pip install "marshmallow>=3.13,<4.0" --force-reinstall
 
-        oc get nodes -o json | jq '.items[].metadata.labels' | grep nvidia
+Then restart the kernel again.
 
-- Insufficient GPU memory — confirm `--gpu-memory-utilization=0.85` is set
-  in `04-inference-service.yaml` and that no other InferenceService is
-  consuming GPU on the same node
+### InferenceService stays at READY: False
 
-### Notebook 01 finds no PDFs in MinIO
+Check the predictor pod status and logs:
 
-The Ansible seeding step did not complete or failed silently. Verify:
+    oc get pods -n sovereign-rag -l serving.kserve.io/inferenceservice=granite-instruct
+    oc logs -n sovereign-rag <pod-name> -c storage-initializer
 
-    mc ls sovereign-rag/documents
+Common causes:
 
-If the bucket is empty, re-run the Ansible playbook:
+- **Model weights not in MinIO** — run `mc ls sovereign-rag/models/granite-3.3-8b-instruct`
+  and confirm files are present with realistic sizes. If empty, re-run the
+  Ansible seeding step.
+- **GPU node not available** — confirm the node label matches the nodeSelector:
 
-    AWS_REGION=us-east-1 \
-    CLUSTER_NAME=your-cluster \
-      ansible-playbook ansible/configure-minio.yaml --tags seed-documents
+      oc get nodes -o json | jq -r '.items[].metadata.labels["nvidia.com/gpu.product"]' | grep -v null
+
+- **Another workload is holding the GPU** — RHDP catalog items sometimes
+  ship a sample model (`my-first-model`) that claims the GPU. Check for
+  competing InferenceServices and delete them if present.
+
+### Model name not found in notebook 02 Cell 4
+
+Run the `/v1/models` check via port-forward (see Smoke test above) to see
+what name vLLM is actually reporting. Update `MODEL_NAME` in Cell 2 of
+notebook 02 to match exactly. The correct name is set via
+`--served-model-name` in `manifests/03-model-serving-runtime.yaml`.
+
+### Inference endpoint connection refused in notebook 02
+
+On RHOAI 3.4, the predictor service is headless (ClusterIP: None). The
+`INFERENCE_ENDPOINT` must include `:8080` — the service has no port
+translation layer. Confirm the variable value:
+
+    oc exec -n sovereign-rag sovereign-rag-workbench-0 \
+      -c sovereign-rag-workbench -- env | grep INFERENCE_ENDPOINT
+
+Expected: `http://granite-instruct-predictor.sovereign-rag.svc.cluster.local:8080`
+
+If it shows port `:80` or no port, the manifest was not updated correctly.
+Delete the workbench pod so it restarts with the correct variable:
+
+    oc delete pod sovereign-rag-workbench-0 -n sovereign-rag
 
 ---
 
 ## Optional — pre-built workbench image
 
-Installing dependencies via `pip install` in Cell 1 of each notebook adds
-1–2 minutes to every session start. For repeated use or demos where startup
-time matters, consider building a custom workbench image with the dependencies
-pre-installed.
+Installing dependencies via Cell 1 adds 1–2 minutes to every session start.
+For frequent use or demos where startup time matters, build a custom image
+with dependencies pre-installed. Use `notebooks/requirements.txt` as the
+source:
 
-A `requirements.txt` covering all notebook dependencies is at:
-
-    01-sovereign-rag/notebooks/requirements.txt
-
-A custom image Dockerfile would extend the RHOAI base image:
-
-    FROM quay.io/opendatahub/notebooks:jupyter-datascience-ubi9-python-3.11-2024b
+    FROM registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9:2025.2
     COPY requirements.txt /tmp/requirements.txt
     RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-Build, push to a registry accessible from your cluster, and register the
-image in the RHOAI dashboard under **Settings → Notebook images**.
-Update `05-workbench.yaml` to reference the new image tag.
+Build and push to a registry the cluster can pull from, then update the
+`image:` field in `manifests/05-workbench.yaml` to reference the new image.

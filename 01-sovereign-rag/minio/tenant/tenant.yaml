@@ -1,12 +1,20 @@
-# tenant.yaml
+# minio/tenant/tenant.yaml
 # MinIO deployed directly as a Deployment — no operator dependency.
 # Suitable for demo/PoC scale. Single instance, no erasure coding.
 #
 # NOTE: originally designed to use the open-source MinIO Operator.
 # Switched to direct deployment after discovering the certified catalog
 # only offers MinIO AIStor, which uses an incompatible CRD (ObjectStore)
-# and a different operational model. Direct deployment avoids that
-# dependency entirely and is simpler for a disposable demo environment.
+# and a different operational model.
+#
+# FIXED (RHOAI 3.4): added strategy: Recreate.
+# The default RollingUpdate strategy with an RWO PVC causes MinIO's
+# single-drive erasure initialisation to corrupt on pod restart, because
+# a new pod attempts to mount the volume before the old one has fully
+# released it. Recreate terminates the old pod before starting the new
+# one, which is the only safe strategy for a single-replica stateful
+# workload on an RWO PVC. This was a confirmed finding from UC02 on
+# RHOAI 3.4 and applies equally here.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -18,6 +26,8 @@ metadata:
     app.kubernetes.io/part-of: rhoai-presales-lab
 spec:
   replicas: 1
+  strategy:
+    type: Recreate # required for RWO PVC — RollingUpdate corrupts single-drive erasure init
   selector:
     matchLabels:
       app: minio

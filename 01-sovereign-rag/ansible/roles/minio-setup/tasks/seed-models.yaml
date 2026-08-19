@@ -1,27 +1,24 @@
 # seed-models.yaml
-# Downloads Granite 3.1 8B Instruct from HuggingFace and uploads to MinIO.
-# This is the most time-consuming step — Granite 3.1 8B is ~16Gi.
+# Downloads Granite 3.3 8B Instruct from HuggingFace and uploads to MinIO.
 #
-# UPDATED: huggingface-cli is deprecated and now a no-op stub that prints
-# a deprecation notice instead of downloading anything. This caused a
-# silent failure — the task appeared to succeed but nothing was actually
-# downloaded, and the bucket stayed empty. Switched to the replacement
-# `hf` CLI command. Added an explicit check that the download actually
-# produced files before attempting the upload, so this kind of silent
-# failure surfaces immediately instead of passing through unnoticed.
+# UPDATED (RHOAI 3.4): model changed from granite-3.1-8b-instruct to
+# granite-3.3-8b-instruct for consistency with UC02.
 #
-# Requires: hf CLI installed on the Ansible control node
-#           (pip install -U huggingface_hub[cli])
-#           HF_TOKEN set if the model requires authentication
+# FIXED (UC01): switched from deprecated huggingface-cli (a no-op stub)
+# to the hf CLI. The old command silently succeeded while downloading
+# nothing, producing an empty bucket that only failed three steps later
+# inside the InferenceService init container.
+#
+# FIXED (UC01): idempotency check now uses mc stdout content, not exit
+# code. mc ls returns rc=0 even on an empty/nonexistent prefix — checking
+# rc alone meant the download was silently skipped on every run.
+#
+# FIXED (UC01): explicit verification after both download and upload.
+# Never trust silent success on hf or mc commands.
 
 - name: Check if model already seeded
-  # FIXED: `mc ls` returns rc=0 even when the prefix has no objects —
-  # MinIO does not treat "nothing found" as a failure. Checking rc alone
-  # always evaluated to "already seeded" and silently skipped the
-  # download on every run, regardless of whether the model existed.
-  # Now checking stdout content instead of exit code.
   ansible.builtin.command: >
-    mc ls sovereign-rag/models/granite-3.1-8b-instruct
+    mc ls sovereign-rag/models/granite-3.3-8b-instruct
   register: model_check
   failed_when: false
   changed_when: false
@@ -30,20 +27,19 @@
   ansible.builtin.set_fact:
     model_already_seeded: "{{ model_check.stdout | trim | length > 0 }}"
 
-- name: Download Granite 3.1 8B Instruct from HuggingFace
+- name: Download Granite 3.3 8B Instruct from HuggingFace
   ansible.builtin.command: >
     hf download
-    ibm-granite/granite-3.1-8b-instruct
-    --local-dir /tmp/granite-3.1-8b-instruct
+    ibm-granite/granite-3.3-8b-instruct
+    --local-dir /tmp/granite-3.3-8b-instruct
   environment:
     HF_TOKEN: "{{ hf_token }}"
   when: not model_already_seeded
-  register: model_download
 
 - name: Verify the download actually produced files
   ansible.builtin.find:
-    paths: /tmp/granite-3.1-8b-instruct
-    patterns: "*"
+    paths: /tmp/granite-3.3-8b-instruct
+    patterns: "*.safetensors"
   register: downloaded_files
   when: not model_already_seeded
   failed_when: not model_already_seeded and downloaded_files.matched == 0
@@ -51,21 +47,21 @@
 - name: Upload model weights to MinIO
   ansible.builtin.command: >
     mc cp --recursive
-    /tmp/granite-3.1-8b-instruct/
-    sovereign-rag/models/granite-3.1-8b-instruct/
+    /tmp/granite-3.3-8b-instruct/
+    sovereign-rag/models/granite-3.3-8b-instruct/
   when: not model_already_seeded
+  register: model_upload
+  failed_when: model_upload.rc != 0
 
 - name: Verify upload succeeded
   ansible.builtin.command: >
-    mc ls sovereign-rag/models/granite-3.1-8b-instruct
+    mc ls sovereign-rag/models/granite-3.3-8b-instruct
   register: upload_check
-  failed_when: upload_check.rc != 0 or upload_check.stdout == ""
   changed_when: false
-  # Final confirmation — fail loudly here rather than discovering an
-  # empty bucket later inside a running pod's init container.
+  failed_when: upload_check.stdout | trim | length == 0
 
 - name: Clean up local model download
   ansible.builtin.file:
-    path: /tmp/granite-3.1-8b-instruct
+    path: /tmp/granite-3.3-8b-instruct
     state: absent
   when: not model_already_seeded
