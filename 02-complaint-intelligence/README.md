@@ -71,3 +71,75 @@ Validated live on RHOAI 3.4.2 (OpenShift 4.20, single node, single NVIDIA L4).
 | Delivery              | Ansible (procedural seeding), Argo CD where available        | Direct-apply fallback documented                      |
 
 ## Directory structure
+
+02-complaint-intelligence/
+├── README.md # this file
+├── REBUILD.md # full build from a fresh cluster
+├── docs/
+│ ├── architecture.md # conceptual and validated architecture
+│ ├── controls-alignment.md # capability-to-control mapping (build contract)
+│ ├── demos/ # how to present this build
+│ ├── adrs/ # architecture decision records
+│ ├── runbooks/ # recovery procedures
+│ └── deployment-logs/ # dated records of what broke and why
+├── scripts/ # bootstrap and MaaS phase scripts
+├── manifests/ # namespace, serving, storage, app, job, MaaS
+├── secrets/ # envsubst templates (no credentials in Git)
+├── ansible/ # post-deploy seeding
+├── data/
+│ ├── taxonomy/ # generic retail-banking theme and root-cause taxonomy
+│ └── synthetic/ # generation scripts and fixtures
+├── pipeline/ # shared classification module (ADR-0009)
+├── notebooks/ # exploration and validation
+└── app/ # demo application (five views)
+
+## Design principles
+
+Inherited from this lab as a whole:
+
+- **Rebuildable from the repo.** No undocumented manual steps. The environment
+  rebuilds from Git, and a rebuilt environment produces identical evidence.
+- **No credentials in Git.** Secrets are injected via envsubst templates held
+  outside any applyable path (ADR-0005).
+- **Each tool for what it is genuinely good at.** GitOps for declarative state,
+  Ansible for procedural tasks, a shared Python module for application logic.
+- **First runs are validation exercises.** Platform-specific drift from
+  documentation is expected, fixed, and recorded, not worked around silently.
+- **Guards test the condition, not a correlate of it.** An idempotency check that
+  passes on partial state turns a transient failure into a permanent one. Presence
+  is not completeness; listability is not searchability.
+
+Specific to this use case:
+
+- **The controls matrix is a build contract.** Implementation decisions (span
+  structure, output schema, mock-PII conventions, versioning discipline) are
+  defined in [controls-alignment.md](docs/controls-alignment.md) and are not
+  optional.
+- **Customer-agnostic by construction.** Nothing in this repository names or
+  identifies any organisation. Per-engagement tailoring lives outside the repo.
+- **Demo honesty.** The application reports what it actually did, including
+  checks that are not configured. It does not quietly correct or hide a model
+  failure (ADR-0007). Quality claims belong to a measured proof of concept
+  against a customer's own baseline, not to this demo.
+
+## Synthetic data
+
+All complaint records in this repository are synthetically generated. Any resemblance
+to real complaints, individuals or organisations is coincidental. Mock PII patterns
+are documented fixtures used to demonstrate guardrail behaviour and are obviously
+fake by design.
+
+The dataset is deliberately hard: 200 records across a six-month window, including
+designed ambiguity where a reasonable reviewer could file either way, near-duplicates
+across channels, PII carriers, injection fixtures, and a shaped upward trend on two
+themes. A 60-record reference set carries ground-truth labels for theme and root
+cause as an accuracy baseline.
+
+## Relationship to the wider lab
+
+This is the second use case in a structured presales lab on Red Hat OpenShift AI.
+Use Case 01 (sovereign RAG) validated the platform foundations this use case builds
+on: model serving via vLLM/KServe RawDeployment, MinIO object storage, GitOps
+delivery, and the environment-specific fixes recorded in its README. Use Case 02
+adds Llama Stack, TrustyAI guardrails, Docling ingestion, a governed model gateway,
+and classification-as-a-pattern with structured, versioned, citation-linked output.
