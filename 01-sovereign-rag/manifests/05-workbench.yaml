@@ -11,7 +11,7 @@
 # UPDATED (RHOAI 3.4): workbench image tag is intentionally left as a
 # VALIDATE placeholder. The SHA used on RHOAI 2.25.8
 # (@sha256:128879eb...) will not be valid on 3.4. On first deploy, run:
-#   oc get imagestream jupyter-datascience-cpu-py312-ubi9 \
+#   oc get imagestream s2i-generic-data-science-notebook \
 #     -n redhat-ods-applications \
 #     -o jsonpath='{.status.tags[?(@.tag=="2025.2")].items[0].dockerImageReference}'
 # and update the image field with the returned SHA-pinned reference.
@@ -49,7 +49,7 @@ spec:
         - name: sovereign-rag-workbench
           # VALIDATE: update this SHA on first deploy against the RHOAI 3.4 cluster.
           # See instructions in the file header above.
-          image: registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9:2025.2
+          image: registry.redhat.io/rhoai/odh-workbench-jupyter-datascience-cpu-py312-rhel9@sha256:8245032ce4cdc765fa85dfef7c6c2da69f1d1860d824981eccdca3bddcf6bc4d
           env:
             - name: MINIO_ENDPOINT
               value: "minio.sovereign-rag.svc.cluster.local:9000"
