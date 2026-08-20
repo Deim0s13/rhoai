@@ -3,8 +3,11 @@
 AI-assisted complaint theme and root-cause classification for a financial services
 organisation, built as a **governed workload** on Red Hat OpenShift AI.
 
-**Status: in design.** The controls matrix and architecture are defined; platform
-validation and build have not yet started. See [Open decisions](docs/architecture.md#open-decisions).
+**Status: built and validated.** The full pipeline runs end to end on RHOAI 3.4.2,
+rebuildable from this repository. Optional Models-as-a-Service phases (ADR-0003)
+add token budgets, identity-based access and cost attribution. See
+[REBUILD.md](REBUILD.md) to build it and
+[docs/demos/PRESENTING.md](docs/demos/PRESENTING.md) to demonstrate it.
 
 ## What this use case demonstrates
 
@@ -15,8 +18,9 @@ demonstrates a retrieval-augmented classification pipeline that:
 
 - ingests unstructured complaint records and parses them into consistent, analysable text
 - classifies each complaint against a standardised theme and root-cause taxonomy
-- attaches a confidence score and a citation to the source text for every classification
-- routes low-confidence cases to human review instead of guessing
+- attaches a confidence score and a verified citation to the source text for every classification
+- routes genuinely uncertain cases to human review instead of guessing
+- aggregates individual records into theme trends and cross-theme root cause analysis
 - produces the audit evidence a regulated organisation needs, by construction
 
 The distinguishing feature is not the RAG pattern itself. It is that the workload is
@@ -36,79 +40,34 @@ one of the lowest-risk, highest-leverage categories of enterprise generative AI
 adoption: the failure modes are measurable classification errors, not customer-facing
 incidents.
 
+## Getting started
+
+| I want to...                             | Read                                                 |
+| ---------------------------------------- | ---------------------------------------------------- |
+| Build the environment                    | [REBUILD.md](REBUILD.md)                             |
+| Demonstrate it to an audience            | [docs/demos/PRESENTING.md](docs/demos/PRESENTING.md) |
+| Understand the architecture              | [docs/architecture.md](docs/architecture.md)         |
+| Understand why a decision was made       | [docs/adrs/](docs/adrs/)                             |
+| Recover a broken environment             | [docs/runbooks/](docs/runbooks/)                     |
+| See what went wrong and how it was fixed | [docs/deployment-logs/](docs/deployment-logs/)       |
+
 ## Stack
 
-| Concern                | Component                                       | Notes                                                                         |
-| ---------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------- |
-| Platform               | Red Hat OpenShift AI on OpenShift               | RHDP-provisioned environment for the demo                                     |
-| Inference API          | Llama Stack                                     | Unified API; model selection by configuration                                 |
-| Model serving          | vLLM (Red Hat AI Inference Server)              | Self-hosted open model, single GPU                                            |
-| Model                  | Granite 3.x 8B Instruct (or catalog equivalent) | Demo runs fully in-cluster; no external inference                             |
-| Guardrails             | TrustyAI                                        | PII detection/redaction on inputs and outputs                                 |
-| Vector store           | Milvus                                          | Via Llama Stack                                                               |
-| Ingestion              | Docling                                         | Structure-aware parsing of complaint records                                  |
-| Tracing and evaluation | MLflow (platform-embedded)                      | Span structure per the controls matrix; pending alignment, see open decisions |
-| Delivery               | Argo CD (GitOps), Ansible (procedural seeding)  | Follows the conventions established in Use Case 01                            |
+Validated live on RHOAI 3.4.2 (OpenShift 4.20, single node, single NVIDIA L4).
+
+| Concern               | Component                                                    | Notes                                                 |
+| --------------------- | ------------------------------------------------------------ | ----------------------------------------------------- |
+| Platform              | Red Hat OpenShift AI 3.4.2 on OpenShift                      | RHDP-provisioned; also validated on 2.25.8            |
+| Inference API         | Llama Stack                                                  | Unified API, OpenAI-native; Technology Preview on 3.4 |
+| Model serving         | vLLM (Red Hat AI Inference Server) via KServe RawDeployment  | Self-hosted, single GPU                               |
+| Model                 | Granite 3.3 8B Instruct                                      | Runs fully in-cluster; no external inference          |
+| Guardrails            | TrustyAI                                                     | PII detection and redaction at the ingestion boundary |
+| Vector store          | Inline Milvus, via Llama Stack                               | Opt-in on 3.4 (`ENABLE_INLINE_MILVUS`)                |
+| Embeddings            | Inline sentence-transformers (`nomic-embed-text-v1.5`, 768d) | Opt-in on 3.4                                         |
+| Metadata store        | PostgreSQL                                                   | Required by Llama Stack from RHOAI 3.2 onward         |
+| Object storage        | MinIO                                                        | Complaints, evidence records, model weights           |
+| Ingestion             | Docling                                                      | Structure-aware parsing of mixed-format records       |
+| Governance (optional) | Kuadrant / MaaS                                              | Token budgets, API keys, cost attribution (ADR-0003)  |
+| Delivery              | Ansible (procedural seeding), Argo CD where available        | Direct-apply fallback documented                      |
 
 ## Directory structure
-
-```
-02-complaint-intelligence/
-├── README.md                  # this file
-├── docs/
-│   ├── architecture.md        # conceptual and demo architecture
-│   ├── controls-alignment.md  # capability-to-control mapping (build contract)
-│   ├── demo-guide.md          # environment, build steps, demo flow (pending)
-│   └── adrs/                  # architecture decision records for this use case
-├── gitops/                    # Argo CD Applications
-├── manifests/                 # namespace, serving, storage manifests
-├── ansible/                   # post-deploy seeding (taxonomy, synthetic data, policies)
-├── data/
-│   ├── taxonomy/              # generic retail-banking theme and root-cause taxonomy
-│   └── synthetic/             # generation scripts and fixture conventions
-├── pipelines/                 # ingestion, embedding, classification
-├── notebooks/                 # exploration and validation notebooks
-└── app/                       # thin demo UI
-```
-
-## Design principles
-
-Inherited from this lab as a whole:
-
-- **Rebuildable from the repo.** No undocumented manual steps. The environment
-  rebuilds from Git, and a rebuilt environment produces identical evidence.
-- **No credentials in Git.** Secrets are injected via environment variables at
-  deploy time.
-- **Each tool for what it is genuinely good at.** GitOps for declarative state,
-  Ansible for procedural tasks, pipelines and notebooks for application logic.
-- **First runs are validation exercises.** Platform-specific drift from
-  documentation is expected, fixed, and recorded, not worked around silently.
-
-Specific to this use case:
-
-- **The controls matrix is a build contract.** Implementation decisions (span
-  structure, output schema, mock-PII conventions, versioning discipline) are
-  defined in [controls-alignment.md](docs/controls-alignment.md) and are not
-  optional.
-- **Customer-agnostic by construction.** Nothing in this repository names or
-  identifies any organisation. Per-engagement tailoring lives outside the repo.
-- **Demo honesty.** The demo runs a small open model in-cluster. It demonstrates
-  architecture and controls, not frontier-model classification quality. Quality
-  claims belong to a measured proof of concept against a customer's own baseline,
-  not to this demo.
-
-## Synthetic data
-
-All complaint records in this repository are synthetically generated. Any resemblance
-to real complaints, individuals or organisations is coincidental. Mock PII patterns
-are documented fixtures used to demonstrate guardrail behaviour and are obviously
-fake by design.
-
-## Relationship to the wider lab
-
-This is the second use case in a structured presales lab on Red Hat OpenShift AI.
-Use Case 01 (sovereign RAG) validated the platform foundations this use case builds
-on: model serving via vLLM/KServe RawDeployment, MinIO object storage, GitOps
-delivery, and the environment-specific fixes recorded in its README. Use Case 02
-adds Llama Stack, TrustyAI guardrails, Docling ingestion, and
-classification-as-a-pattern with structured, versioned, citation-linked output.
